@@ -43,6 +43,7 @@ import {
   compressImageToThumbnailDataUrl,
   isSafeThumbnailUrl,
   parseYouTubeVideoId,
+  resolveAssetUrl,
 } from '@/src/lib/utils';
 import {
   BATCH_COVER_IMAGES,
@@ -795,7 +796,7 @@ export function AdminConsoleView({
                 </div>
                 {(lecThumbnailUrl || selectedBatch?.coverImage) && (
                   <img
-                    src={lecThumbnailUrl || selectedBatch?.coverImage}
+                    src={resolveAssetUrl(lecThumbnailUrl || selectedBatch?.coverImage)}
                     alt="Lecture thumbnail preview"
                     referrerPolicy="no-referrer"
                     className="w-16 aspect-video rounded border border-slate-200 object-cover shrink-0 bg-slate-100"
@@ -855,7 +856,7 @@ export function AdminConsoleView({
                           <div className="w-20 aspect-video rounded bg-slate-100 border border-slate-200 overflow-hidden shrink-0">
                             {thumbSrc ? (
                               <img
-                                src={thumbSrc}
+                                src={resolveAssetUrl(thumbSrc)}
                                 alt={lec.title}
                                 referrerPolicy="no-referrer"
                                 className="w-full h-full object-cover"

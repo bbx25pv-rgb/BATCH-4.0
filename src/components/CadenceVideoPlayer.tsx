@@ -17,6 +17,7 @@ import {
   loadYouTubeIframeApi,
   YTPlayerInstance,
 } from '@/src/lib/youtubeApi';
+import { resolveAssetUrl } from '@/src/lib/utils';
 
 interface CadenceVideoPlayerProps {
   videoId: string;
@@ -668,7 +669,7 @@ export function CadenceVideoPlayer({
           >
             {posterImage && (
               <img
-                src={posterImage}
+                src={resolveAssetUrl(posterImage)}
                 alt={title}
                 referrerPolicy="no-referrer"
                 className="absolute inset-0 w-full h-full object-cover opacity-45 group-hover:opacity-55 transition-opacity"

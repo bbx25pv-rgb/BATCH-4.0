@@ -133,6 +133,14 @@ export function sanitizeString(value: string, maxLen: number): string {
   return value.trim().slice(0, maxLen);
 }
 
+export function resolveAssetUrl(src?: string): string | undefined {
+  if (!src) return src;
+  if (src.startsWith('/src/assets/')) {
+    return `.${src}`;
+  }
+  return src;
+}
+
 const SAFE_THUMBNAIL_REGEX =
   /^(https:\/\/[^\s]+|\/src\/assets\/[^\s]+|data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+)$/;
 

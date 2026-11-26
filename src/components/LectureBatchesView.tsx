@@ -17,6 +17,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/src/lib/firebase';
 import { purchaseBatch } from '@/src/lib/studyService';
+import { resolveAssetUrl } from '@/src/lib/utils';
 import { Batch, BatchPurchase, Lecture } from '@/src/types';
 import { CadenceVideoPlayer } from '@/src/components/CadenceVideoPlayer';
 
@@ -43,7 +44,7 @@ function BatchCover({ src, title }: { src: string; title: string }) {
 
   return (
     <img
-      src={src}
+      src={resolveAssetUrl(src)}
       alt={title}
       referrerPolicy="no-referrer"
       onError={() => setFailed(true)}
@@ -65,7 +66,7 @@ function LectureThumbnail({ src, title }: { src?: string; title: string }) {
 
   return (
     <img
-      src={src}
+      src={resolveAssetUrl(src)}
       alt={title}
       referrerPolicy="no-referrer"
       onError={() => setFailed(true)}
