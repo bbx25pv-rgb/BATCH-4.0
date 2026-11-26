@@ -1,0 +1,415 @@
+{
+  "entities": {
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized administrator granted batch and unlisted lecture management privileges.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200
+        },
+        "addedBy": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "addedBy", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private student or admin profile storing study target preferences and account info.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "phoneNumber": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "dailyGoalMinutes": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "displayName", "email", "phoneNumber", "dailyGoalMinutes", "createdAt", "updatedAt"]
+    },
+    "Subject": {
+      "title": "Subject",
+      "description": "Academic subject or goal tracked by a student with weekly study targets.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20
+        },
+        "targetMinutesPerWeek": {
+          "type": "number"
+        },
+        "colorKey": {
+          "type": "string",
+          "enum": ["cobalt", "emerald", "amber", "rose", "slate"]
+        },
+        "totalMinutesLogged": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "name", "code", "targetMinutesPerWeek", "colorKey", "totalMinutesLogged", "createdAt", "updatedAt"]
+    },
+    "StudySession": {
+      "title": "StudySession",
+      "description": "Logged Pomodoro or manual focus session tied to an academic subject.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "subjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "subjectName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "durationMinutes": {
+          "type": "number"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["pomodoro", "manual", "lecture"]
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "lectureTitle": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "subjectId", "subjectName", "durationMinutes", "mode", "notes", "lectureTitle", "completedAt", "createdAt", "updatedAt"]
+    },
+    "Habit": {
+      "title": "Habit",
+      "description": "Daily academic study habit with quantitative progress bar tracking and streaks.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "category": {
+          "type": "string",
+          "enum": ["focus", "practice", "reading", "revision"]
+        },
+        "targetValue": {
+          "type": "number"
+        },
+        "unit": {
+          "type": "string",
+          "enum": ["minutes", "sessions", "pages"]
+        },
+        "currentProgress": {
+          "type": "number"
+        },
+        "lastResetDate": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "maxLength": 10
+        },
+        "streakDays": {
+          "type": "number"
+        },
+        "linkedSubjectId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "title", "category", "targetValue", "unit", "currentProgress", "lastResetDate", "streakDays", "linkedSubjectId", "createdAt", "updatedAt"]
+    },
+    "Batch": {
+      "title": "Batch",
+      "description": "Academic course batch available for enrollment. Does not store unlisted video URLs.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "subjectTag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "instructor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600
+        },
+        "priceUsd": {
+          "type": "number"
+        },
+        "coverImage": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "lectureCount": {
+          "type": "number"
+        },
+        "isPublished": {
+          "type": "boolean"
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["title", "subjectTag", "instructor", "description", "priceUsd", "coverImage", "lectureCount", "isPublished", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Lecture": {
+      "title": "Lecture",
+      "description": "Admin-managed unlisted YouTube lecture belonging to a batch. Accessible only to admins and enrolled students.",
+      "type": "object",
+      "properties": {
+        "batchId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "moduleName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "orderIndex": {
+          "type": "number"
+        },
+        "durationMinutes": {
+          "type": "number"
+        },
+        "youtubeUrl": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 300
+        },
+        "youtubeVideoId": {
+          "type": "string",
+          "minLength": 11,
+          "maxLength": 11,
+          "pattern": "^[a-zA-Z0-9_\\-]{11}$"
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "thumbnailUrl": {
+          "type": "string",
+          "maxLength": 150000
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["batchId", "title", "moduleName", "orderIndex", "durationMinutes", "youtubeUrl", "youtubeVideoId", "summary", "createdBy", "createdAt", "updatedAt"]
+    },
+    "BatchPurchase": {
+      "title": "BatchPurchase",
+      "description": "Enrollment receipt granting a student access to a purchased batch's unlisted lecture videos.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "batchId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "batchTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "amountPaid": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "revoked"]
+        },
+        "grantedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "purchasedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "batchId", "batchTitle", "amountPaid", "status", "grantedBy", "purchasedAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Admin directory controlling lecture and batch write access."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-isolated student profile and daily study target."
+    },
+    "/subjects/{subjectId}": {
+      "schema": { "$ref": "#/entities/Subject" },
+      "description": "Student-owned academic subjects for Pomodoro and session log tracking."
+    },
+    "/studySessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/StudySession" },
+      "description": "Chronological Pomodoro and manual study session logs owned by each student."
+    },
+    "/habits/{habitId}": {
+      "schema": { "$ref": "#/entities/Habit" },
+      "description": "Student-owned daily academic habits with progress bars and streaks."
+    },
+    "/batches/{batchId}": {
+      "schema": { "$ref": "#/entities/Batch" },
+      "description": "Academic batch catalog metadata (public metadata only, no unlisted lecture links)."
+    },
+    "/batches/{batchId}/lectures/{lectureId}": {
+      "schema": { "$ref": "#/entities/Lecture" },
+      "description": "Unlisted YouTube lecture videos strictly scoped to admins and students with an active purchase for {batchId}."
+    },
+    "/purchases/{purchaseId}": {
+      "schema": { "$ref": "#/entities/BatchPurchase" },
+      "description": "Deterministic {userId}_{batchId} purchase records governing lecture subcollection access."
+    }
+  }
+}

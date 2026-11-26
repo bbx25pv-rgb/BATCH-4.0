@@ -1,0 +1,332 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 3. Hardened Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && (
+        request.auth.token.email_verified == true ||
+        (request.auth.token.firebase.sign_in_provider == 'phone' && request.auth.token.phone_number is string)
+      );
+    }
+
+    function isOwner(userId) {
+      return isVerified() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerified() && (
+        (request.auth.token.email == 'preetverma.bbx@gmail.com' && request.auth.token.email_verified == true) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function hasActivePurchase(batchId) {
+      return isVerified() &&
+        isValidId(batchId) &&
+        exists(/databases/$(database)/documents/purchases/$(request.auth.uid + '_' + batchId)) &&
+        get(/databases/$(database)/documents/purchases/$(request.auth.uid + '_' + batchId)).data.status == 'active';
+    }
+
+    // 2. Validation Blueprints (Anti-Update-Gap)
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'addedBy', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'addedBy', 'createdAt']) &&
+        isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+        data.addedBy is string && data.addedBy.size() >= 1 && data.addedBy.size() <= 128 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'phoneNumber', 'dailyGoalMinutes', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'email', 'phoneNumber', 'dailyGoalMinutes', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+        data.email is string && data.email.size() <= 200 &&
+        data.phoneNumber is string && data.phoneNumber.size() <= 30 &&
+        (data.email.size() >= 3 || data.phoneNumber.size() >= 7) &&
+        data.dailyGoalMinutes is number && data.dailyGoalMinutes >= 15 && data.dailyGoalMinutes <= 720 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSubject(data) {
+      return data.keys().hasAll(['userId', 'name', 'code', 'targetMinutesPerWeek', 'colorKey', 'totalMinutesLogged', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['userId', 'name', 'code', 'targetMinutesPerWeek', 'colorKey', 'totalMinutesLogged', 'createdAt', 'updatedAt']) &&
+        isValidId(data.userId) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+        data.code is string && data.code.size() >= 1 && data.code.size() <= 20 &&
+        data.targetMinutesPerWeek is number && data.targetMinutesPerWeek >= 30 && data.targetMinutesPerWeek <= 6000 &&
+        data.colorKey in ['cobalt', 'emerald', 'amber', 'rose', 'slate'] &&
+        data.totalMinutesLogged is number && data.totalMinutesLogged >= 0 && data.totalMinutesLogged <= 1000000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidStudySession(data) {
+      return data.keys().hasAll(['userId', 'subjectId', 'subjectName', 'durationMinutes', 'mode', 'notes', 'lectureTitle', 'completedAt', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['userId', 'subjectId', 'subjectName', 'durationMinutes', 'mode', 'notes', 'lectureTitle', 'completedAt', 'createdAt', 'updatedAt']) &&
+        isValidId(data.userId) &&
+        isValidId(data.subjectId) &&
+        data.subjectName is string && data.subjectName.size() >= 1 && data.subjectName.size() <= 80 &&
+        data.durationMinutes is number && data.durationMinutes >= 1 && data.durationMinutes <= 480 &&
+        data.mode in ['pomodoro', 'manual', 'lecture'] &&
+        data.notes is string && data.notes.size() <= 500 &&
+        data.lectureTitle is string && data.lectureTitle.size() <= 160 &&
+        data.completedAt is timestamp &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidHabit(data) {
+      return data.keys().hasAll(['userId', 'title', 'category', 'targetValue', 'unit', 'currentProgress', 'lastResetDate', 'streakDays', 'linkedSubjectId', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['userId', 'title', 'category', 'targetValue', 'unit', 'currentProgress', 'lastResetDate', 'streakDays', 'linkedSubjectId', 'createdAt', 'updatedAt']) &&
+        isValidId(data.userId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 80 &&
+        data.category in ['focus', 'practice', 'reading', 'revision'] &&
+        data.targetValue is number && data.targetValue >= 1 && data.targetValue <= 600 &&
+        data.unit in ['minutes', 'sessions', 'pages'] &&
+        data.currentProgress is number && data.currentProgress >= 0 && data.currentProgress <= 2000 &&
+        data.lastResetDate is string && data.lastResetDate.size() == 10 && data.lastResetDate.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.streakDays is number && data.streakDays >= 0 && data.streakDays <= 3650 &&
+        data.linkedSubjectId is string && data.linkedSubjectId.size() <= 128 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidBatch(data) {
+      return data.keys().hasAll(['title', 'subjectTag', 'instructor', 'description', 'priceUsd', 'coverImage', 'lectureCount', 'isPublished', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['title', 'subjectTag', 'instructor', 'description', 'priceUsd', 'coverImage', 'lectureCount', 'isPublished', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+        data.subjectTag is string && data.subjectTag.size() >= 1 && data.subjectTag.size() <= 40 &&
+        data.instructor is string && data.instructor.size() >= 1 && data.instructor.size() <= 80 &&
+        data.description is string && data.description.size() >= 1 && data.description.size() <= 600 &&
+        data.priceUsd is number && data.priceUsd >= 0 && data.priceUsd <= 5000 &&
+        data.coverImage is string && data.coverImage.size() >= 1 && data.coverImage.size() <= 300 &&
+        data.lectureCount is number && data.lectureCount >= 0 && data.lectureCount <= 500 &&
+        data.isPublished is bool &&
+        isValidId(data.createdBy) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidLecture(data) {
+      return data.keys().hasAll(['batchId', 'title', 'moduleName', 'orderIndex', 'durationMinutes', 'youtubeUrl', 'youtubeVideoId', 'summary', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['batchId', 'title', 'moduleName', 'orderIndex', 'durationMinutes', 'youtubeUrl', 'youtubeVideoId', 'summary', 'thumbnailUrl', 'createdBy', 'createdAt', 'updatedAt']) &&
+        isValidId(data.batchId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 140 &&
+        data.moduleName is string && data.moduleName.size() >= 1 && data.moduleName.size() <= 80 &&
+        data.orderIndex is number && data.orderIndex >= 0 && data.orderIndex <= 1000 &&
+        data.durationMinutes is number && data.durationMinutes >= 1 && data.durationMinutes <= 600 &&
+        data.youtubeUrl is string && data.youtubeUrl.size() >= 10 && data.youtubeUrl.size() <= 300 &&
+        data.youtubeVideoId is string && data.youtubeVideoId.size() == 11 && data.youtubeVideoId.matches('^[a-zA-Z0-9_\\-]{11}$') &&
+        data.summary is string && data.summary.size() <= 600 &&
+        (!('thumbnailUrl' in data) || (
+          data.thumbnailUrl is string &&
+          data.thumbnailUrl.size() <= 150000 &&
+          (
+            data.thumbnailUrl == '' ||
+            data.thumbnailUrl.matches('^(https://[^\\s]+|/src/assets/[^\\s]+|data:image/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+)$')
+          )
+        )) &&
+        isValidId(data.createdBy) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidBatchPurchase(data) {
+      return data.keys().hasAll(['userId', 'batchId', 'batchTitle', 'amountPaid', 'status', 'grantedBy', 'purchasedAt', 'updatedAt']) &&
+        data.keys().hasOnly(['userId', 'batchId', 'batchTitle', 'amountPaid', 'status', 'grantedBy', 'purchasedAt', 'updatedAt']) &&
+        isValidId(data.userId) &&
+        isValidId(data.batchId) &&
+        data.batchTitle is string && data.batchTitle.size() >= 1 && data.batchTitle.size() <= 120 &&
+        data.amountPaid is number && data.amountPaid >= 0 && data.amountPaid <= 5000 &&
+        data.status in ['active', 'revoked'] &&
+        isValidId(data.grantedBy) &&
+        data.purchasedAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Collection: /admins/{userId}
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && isVerified() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(userId) && isValidAdminUser(incoming()) &&
+        incoming().uid == userId &&
+        incoming().addedBy == request.auth.uid &&
+        incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    // Collection: /users/{userId}
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming()) &&
+        incoming().uid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if (isOwner(userId) || isAdmin()) && isValidId(userId) && isValidUserProfile(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'dailyGoalMinutes', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    // Collection: /subjects/{subjectId}
+    match /subjects/{subjectId} {
+      allow get: if isValidId(subjectId) && isVerified() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isVerified() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(subjectId) && isValidSubject(incoming()) &&
+        incoming().userId == request.auth.uid &&
+        incoming().totalMinutesLogged == 0 &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidId(subjectId) && isValidSubject(incoming()) &&
+        (existing().userId == request.auth.uid || isAdmin()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'code', 'targetMinutesPerWeek', 'colorKey', 'totalMinutesLogged', 'updatedAt'])
+        );
+      allow delete: if isVerified() && isValidId(subjectId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // Collection: /studySessions/{sessionId}
+    match /studySessions/{sessionId} {
+      allow get: if isValidId(sessionId) && isVerified() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isVerified() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(sessionId) && isValidStudySession(incoming()) &&
+        incoming().userId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/subjects/$(incoming().subjectId)) &&
+        get(/databases/$(database)/documents/subjects/$(incoming().subjectId)).data.userId == request.auth.uid;
+      allow update: if isVerified() && isValidId(sessionId) && isValidStudySession(incoming()) &&
+        (existing().userId == request.auth.uid || isAdmin()) &&
+        incoming().userId == existing().userId &&
+        incoming().subjectId == existing().subjectId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['notes', 'updatedAt'])
+        );
+      allow delete: if isVerified() && isValidId(sessionId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // Collection: /habits/{habitId}
+    match /habits/{habitId} {
+      allow get: if isValidId(habitId) && isVerified() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isVerified() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(habitId) && isValidHabit(incoming()) &&
+        incoming().userId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidId(habitId) && isValidHabit(incoming()) &&
+        (existing().userId == request.auth.uid || isAdmin()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'targetValue', 'unit', 'currentProgress', 'lastResetDate', 'streakDays', 'linkedSubjectId', 'updatedAt'])
+        );
+      allow delete: if isVerified() && isValidId(habitId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // Collection: /batches/{batchId} (Public catalog metadata only - no unlisted video URLs)
+    match /batches/{batchId} {
+      allow get: if isValidId(batchId) && (existing().isPublished == true || isAdmin());
+      allow list: if existing().isPublished == true || isAdmin();
+      allow create: if isAdmin() && isValidId(batchId) && isValidBatch(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(batchId) && isValidBatch(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['title', 'subjectTag', 'instructor', 'description', 'priceUsd', 'coverImage', 'lectureCount', 'isPublished', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(batchId);
+
+      // Subcollection: /batches/{batchId}/lectures/{lectureId}
+      // Protected Master Gate: ONLY admins or students with an active purchase of {batchId} can read.
+      // ONLY admins can create, update, or delete unlisted YouTube lecture links.
+      match /lectures/{lectureId} {
+        allow get: if isValidId(batchId) && isValidId(lectureId) && (isAdmin() || hasActivePurchase(batchId));
+        allow list: if isAdmin() || hasActivePurchase(batchId);
+        allow create: if isAdmin() && isValidId(batchId) && isValidId(lectureId) && isValidLecture(incoming()) &&
+          incoming().batchId == batchId &&
+          incoming().createdBy == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          exists(/databases/$(database)/documents/batches/$(batchId));
+        allow update: if isAdmin() && isValidId(batchId) && isValidId(lectureId) && isValidLecture(incoming()) &&
+          incoming().batchId == existing().batchId &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'moduleName', 'orderIndex', 'durationMinutes', 'youtubeUrl', 'youtubeVideoId', 'summary', 'thumbnailUrl', 'updatedAt']);
+        allow delete: if isAdmin() && isValidId(batchId) && isValidId(lectureId);
+      }
+    }
+
+    // Collection: /purchases/{purchaseId}
+    match /purchases/{purchaseId} {
+      allow get: if isValidId(purchaseId) && isVerified() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isVerified() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(purchaseId) && isValidBatchPurchase(incoming()) &&
+        incoming().purchasedAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            purchaseId == request.auth.uid + '_' + incoming().batchId &&
+            incoming().userId == request.auth.uid &&
+            incoming().grantedBy == request.auth.uid &&
+            incoming().status == 'active' &&
+            exists(/databases/$(database)/documents/batches/$(incoming().batchId)) &&
+            get(/databases/$(database)/documents/batches/$(incoming().batchId)).data.isPublished == true
+          ) ||
+          (
+            isAdmin() &&
+            purchaseId == incoming().userId + '_' + incoming().batchId &&
+            exists(/databases/$(database)/documents/batches/$(incoming().batchId))
+          )
+        );
+      allow update: if isAdmin() && isValidId(purchaseId) && isValidBatchPurchase(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().batchId == existing().batchId &&
+        incoming().purchasedAt == existing().purchasedAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'amountPaid', 'batchTitle', 'grantedBy', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(purchaseId);
+    }
+  }
+}
