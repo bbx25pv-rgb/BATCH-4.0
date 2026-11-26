@@ -19,8 +19,8 @@ export function Navbar({
   onSignOut,
 }: NavbarProps) {
   const navItems: Array<{ id: ActiveTab; label: string }> = [
-    { id: 'logs', label: 'Session Logs' },
     { id: 'batches', label: 'Lecture Batches' },
+    { id: 'logs', label: 'Session Logs' },
   ];
 
   if (isAdmin) {
@@ -33,7 +33,7 @@ export function Navbar({
         {/* Zone 1: Single text element wordmark */}
         <button
           type="button"
-          onClick={() => onSelectTab('logs')}
+          onClick={() => onSelectTab('batches')}
           className="text-lg font-bold tracking-tight text-slate-900 font-display whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-blue-600"
         >
           Cadence Study

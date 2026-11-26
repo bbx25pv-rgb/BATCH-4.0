@@ -133,6 +133,20 @@ export interface Lecture {
   updatedAt: Timestamp;
 }
 
+export interface LecturePreview {
+  id: string;
+  batchId: string;
+  title: string;
+  moduleName: string;
+  orderIndex: number;
+  durationMinutes: number;
+  summary: string;
+  thumbnailUrl?: string;
+  createdBy: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 export interface BatchPurchase {
   id: string;
   userId: string;

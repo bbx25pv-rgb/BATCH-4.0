@@ -18,6 +18,7 @@ const requiredCollections = [
   '/habits/{habitId}',
   '/batches/{batchId}',
   '/batches/{batchId}/lectures/{lectureId}',
+  '/batches/{batchId}/syllabus/{lectureId}',
   '/purchases/{purchaseId}',
 ];
 

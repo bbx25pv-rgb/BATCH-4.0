@@ -21,8 +21,10 @@ import {
 import { db, handleFirestoreError, OperationType } from '@/src/lib/firebase';
 import { purchaseBatch } from '@/src/lib/studyService';
 import { resolveAssetUrl } from '@/src/lib/utils';
-import { Batch, BatchPurchase, Lecture } from '@/src/types';
+import { Batch, BatchPurchase, Lecture, LecturePreview } from '@/src/types';
 import { CadenceVideoPlayer } from '@/src/components/CadenceVideoPlayer';
+
+type DisplayLecture = LecturePreview & Partial<Pick<Lecture, 'youtubeUrl' | 'youtubeVideoId'>>;
 
 interface LectureBatchesViewProps {
   userId: string | null;
@@ -105,8 +107,8 @@ export function LectureBatchesView({
     [batches, selectedBatchId]
   );
 
-  // Lectures loaded ONLY for an active purchased batch (or admin)
-  const [lectures, setLectures] = useState<Lecture[]>([]);
+  // Full lectures (with video IDs) for enrolled users/admins; syllabus previews (no video IDs) for public visitors
+  const [lectures, setLectures] = useState<DisplayLecture[]>([]);
   const [loadingLectures, setLoadingLectures] = useState(false);
   const [moduleFilter, setModuleFilter] = useState<string>('all');
   const [activeLectureId, setActiveLectureId] = useState<string | null>(null);
@@ -121,15 +123,17 @@ export function LectureBatchesView({
     return set;
   }, [purchases]);
 
+  const effectiveFilter = userId ? catalogFilter : 'all';
+
   const visibleBatches = useMemo(() => {
     return batches.filter((b) => {
       if (!b.isPublished && !isAdmin) return false;
       const owned = activePurchasedBatchIds.has(b.id);
-      if (catalogFilter === 'purchased') return owned;
-      if (catalogFilter === 'available') return !owned;
+      if (effectiveFilter === 'purchased') return owned;
+      if (effectiveFilter === 'available') return !owned;
       return true;
     });
-  }, [batches, isAdmin, activePurchasedBatchIds, catalogFilter]);
+  }, [batches, isAdmin, activePurchasedBatchIds, effectiveFilter]);
 
   const canAccessSelectedBatch = useMemo(() => {
     if (!selectedBatch || !userId) return false;
@@ -137,7 +141,7 @@ export function LectureBatchesView({
   }, [selectedBatch, userId, isAdmin, activePurchasedBatchIds]);
 
   useEffect(() => {
-    if (!selectedBatch || !canAccessSelectedBatch) {
+    if (!selectedBatch) {
       setLectures([]);
       setModuleFilter('all');
       setActiveLectureId(null);
@@ -148,15 +152,16 @@ export function LectureBatchesView({
 
     setLoadingLectures(true);
     setModuleFilter('all');
-    const path = `batches/${selectedBatch.id}/lectures`;
+    const subcollection = canAccessSelectedBatch ? 'lectures' : 'syllabus';
+    const path = `batches/${selectedBatch.id}/${subcollection}`;
     const q = query(collection(db, path), orderBy('orderIndex', 'asc'));
 
     const unsub = onSnapshot(
       q,
       (snapshot) => {
-        const items: Lecture[] = snapshot.docs.map((d) => ({
+        const items: DisplayLecture[] = snapshot.docs.map((d) => ({
           id: d.id,
-          ...(d.data() as Omit<Lecture, 'id'>),
+          ...(d.data() as Omit<DisplayLecture, 'id'>),
         }));
         setLectures(items);
         setActiveLectureId((prev) => {
@@ -223,8 +228,19 @@ export function LectureBatchesView({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isPlayerCardOpen]);
 
-  function handleOpenLectureCard(lectureId: string) {
-    setActiveLectureId(lectureId);
+  function handleOpenLectureCard(lecture: DisplayLecture) {
+    if (!canAccessSelectedBatch || !lecture.youtubeVideoId) {
+      if (!userId) {
+        onRequireSignIn();
+        return;
+      }
+      if (selectedBatch) {
+        setPurchaseError(null);
+        setCheckoutBatch(selectedBatch);
+      }
+      return;
+    }
+    setActiveLectureId(lecture.id);
     setPlayTrigger((c) => c + 1);
     setIsPlayerCardOpen(true);
   }
@@ -247,8 +263,8 @@ export function LectureBatchesView({
     }
   }
 
-  // Classroom View for an enrolled batch — displays subject lectures as clickable cards
-  if (selectedBatch && canAccessSelectedBatch) {
+  // Classroom & Private Curriculum View for a selected batch — displays subject lectures as clickable cards
+  if (selectedBatch) {
     return (
       <section className="max-w-[1280px] mx-auto px-6 py-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
@@ -265,14 +281,41 @@ export function LectureBatchesView({
             <span>Back to Lecture Batches</span>
           </button>
 
-          <div className="flex items-center gap-2 text-xs text-emerald-700 font-medium whitespace-nowrap shrink-0">
-            <ShieldCheck className="w-4 h-4" />
-            <span>
-              {isAdmin && !activePurchasedBatchIds.has(selectedBatch.id)
-                ? 'Admin Preview Access'
-                : 'Enrolled Batch Access'}
-            </span>
-          </div>
+          {canAccessSelectedBatch ? (
+            <div className="flex items-center gap-2 text-xs text-emerald-700 font-medium whitespace-nowrap shrink-0">
+              <ShieldCheck className="w-4 h-4" />
+              <span>
+                {isAdmin && !activePurchasedBatchIds.has(selectedBatch.id)
+                  ? 'Admin Preview Access'
+                  : 'Enrolled Batch Access'}
+              </span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 font-medium whitespace-nowrap shrink-0">
+                <Lock className="w-3.5 h-3.5 text-slate-500" />
+                <span>Private Lectures · Enrollment Required</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!userId) {
+                    onRequireSignIn();
+                    return;
+                  }
+                  setPurchaseError(null);
+                  setCheckoutBatch(selectedBatch);
+                }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                <span>
+                  {userId
+                    ? `Purchase Batch · $${selectedBatch.priceUsd}`
+                    : `Sign in to Enroll · $${selectedBatch.priceUsd}`}
+                </span>
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -363,7 +406,7 @@ export function LectureBatchesView({
                 <button
                   key={lec.id}
                   type="button"
-                  onClick={() => handleOpenLectureCard(lec.id)}
+                  onClick={() => handleOpenLectureCard(lec)}
                   className={`group text-left bg-white border rounded-xl overflow-hidden flex flex-col justify-between transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                     isSelected
                       ? 'border-blue-600'
@@ -378,12 +421,18 @@ export function LectureBatchesView({
                       />
                       <div
                         aria-hidden="true"
-                        className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent opacity-80 group-hover:opacity-90 transition-opacity"
+                        className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent opacity-85 group-hover:opacity-95 transition-opacity"
                       />
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="w-12 h-12 rounded-full bg-slate-950/75 group-hover:bg-blue-600 text-white flex items-center justify-center transition-colors">
-                          <Play className="w-5 h-5 fill-current ml-0.5" />
-                        </span>
+                        {canAccessSelectedBatch ? (
+                          <span className="w-12 h-12 rounded-full bg-slate-950/75 group-hover:bg-blue-600 text-white flex items-center justify-center transition-colors">
+                            <Play className="w-5 h-5 fill-current ml-0.5" />
+                          </span>
+                        ) : (
+                          <span className="w-12 h-12 rounded-full bg-slate-950/80 group-hover:bg-blue-600 text-white flex items-center justify-center transition-colors">
+                            <Lock className="w-5 h-5" />
+                          </span>
+                        )}
                       </div>
                       <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between text-xs font-mono tabular-nums text-white">
                         <span>Lesson {String(lessonNumber).padStart(2, '0')}</span>
@@ -414,10 +463,17 @@ export function LectureBatchesView({
                     <span className="text-slate-500 truncate">
                       {selectedBatch.instructor}
                     </span>
-                    <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900 group-hover:text-blue-700 transition-colors whitespace-nowrap shrink-0">
-                      <PlayCircle className="w-4 h-4" />
-                      <span>Watch Lecture</span>
-                    </span>
+                    {canAccessSelectedBatch ? (
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900 group-hover:text-blue-700 transition-colors whitespace-nowrap shrink-0">
+                        <PlayCircle className="w-4 h-4" />
+                        <span>Watch Lecture</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700 group-hover:text-blue-700 transition-colors whitespace-nowrap shrink-0">
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>{userId ? 'Enroll to Watch' : 'Private · Sign in'}</span>
+                      </span>
+                    )}
                   </div>
                 </button>
               );
@@ -426,7 +482,7 @@ export function LectureBatchesView({
         )}
 
         {/* Lecture Player Card Modal */}
-        {isPlayerCardOpen && activeLecture && (
+        {isPlayerCardOpen && canAccessSelectedBatch && activeLecture && activeLecture.youtubeVideoId && (
           <div
             role="dialog"
             aria-modal="true"
@@ -549,32 +605,44 @@ export function LectureBatchesView({
             Academic Lecture Batches
           </h1>
           <p className="mt-1.5 text-sm text-slate-600 max-w-2xl">
-            Enroll in structured subject cohorts. Unlisted lecture videos are strictly restricted to students with an active batch purchase.
+            {userId
+              ? 'Enroll in structured subject cohorts. Unlisted lecture videos are strictly restricted to students with an active batch purchase.'
+              : 'Browse all available subject cohorts below. Sign in to enroll and unlock unlisted lecture videos.'}
           </p>
         </div>
 
-        <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start">
-          {(
-            [
-              { id: 'all', label: 'All Batches' },
-              { id: 'purchased', label: 'My Purchased' },
-              { id: 'available', label: 'Available' },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setCatalogFilter(tab.id)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
-                catalogFilter === tab.id
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {userId ? (
+          <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start">
+            {(
+              [
+                { id: 'all', label: 'All Batches' },
+                { id: 'purchased', label: 'My Purchased' },
+                { id: 'available', label: 'Available' },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setCatalogFilter(tab.id)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                  effectiveFilter === tab.id
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onRequireSignIn}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 self-start"
+          >
+            Sign in to Enroll
+          </button>
+        )}
       </div>
 
       {loadingBatches ? (
@@ -608,11 +676,7 @@ export function LectureBatchesView({
             const isOwned = activePurchasedBatchIds.has(batch.id);
             const canOpen = userId !== null && (isOwned || isAdmin);
 
-            const handleBatchAction = () => {
-              if (canOpen) {
-                setSelectedBatchId(batch.id);
-                return;
-              }
+            const handleDirectEnroll = () => {
               if (!userId) {
                 onRequireSignIn();
                 return;
@@ -628,7 +692,7 @@ export function LectureBatchesView({
               >
                 <button
                   type="button"
-                  onClick={handleBatchAction}
+                  onClick={() => setSelectedBatchId(batch.id)}
                   className="text-left w-full flex-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-600"
                 >
                   <div className="aspect-video w-full bg-slate-100 overflow-hidden border-b border-slate-100">
@@ -673,7 +737,7 @@ export function LectureBatchesView({
                         <span className="font-mono tabular-nums font-semibold text-slate-900">
                           ${batch.priceUsd}
                         </span>
-                        <span>· Purchase required</span>
+                        <span>· Private lectures</span>
                       </span>
                     )}
                   </div>
@@ -690,7 +754,7 @@ export function LectureBatchesView({
                   ) : (
                     <button
                       type="button"
-                      onClick={handleBatchAction}
+                      onClick={handleDirectEnroll}
                       className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0"
                     >
                       <span>Purchase Batch</span>

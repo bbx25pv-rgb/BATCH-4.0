@@ -32,6 +32,7 @@ import {
 interface SessionLogsViewProps {
   userId: string | null;
   onRequireSignIn: () => void;
+  onBrowseBatches?: () => void;
   subjects: Subject[];
   sessions: StudySession[];
   habits: Habit[];
@@ -41,6 +42,7 @@ interface SessionLogsViewProps {
 export function SessionLogsView({
   userId,
   onRequireSignIn,
+  onBrowseBatches,
   subjects,
   sessions,
   habits,
@@ -195,13 +197,24 @@ export function SessionLogsView({
           <p className="text-sm text-slate-600 mb-6">
             Sign in with Google or your phone number to track cumulative hours per subject, review your chronological study logs, and monitor weekly target attainment.
           </p>
-          <button
-            type="button"
-            onClick={onRequireSignIn}
-            className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            Sign in
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={onRequireSignIn}
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap shrink-0"
+            >
+              Sign in
+            </button>
+            {onBrowseBatches && (
+              <button
+                type="button"
+                onClick={onBrowseBatches}
+                className="px-5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 text-sm font-medium rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                Browse Lecture Batches
+              </button>
+            )}
+          </div>
         </div>
       </section>
     );

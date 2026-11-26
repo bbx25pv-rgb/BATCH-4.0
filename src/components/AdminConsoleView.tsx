@@ -36,6 +36,7 @@ import {
   createBatch,
   deleteUnlistedLecture,
   seedStarterBatches,
+  syncBatchSyllabusPreviews,
   updateBatch,
   updateLectureThumbnail,
 } from '@/src/lib/studyService';
@@ -123,6 +124,14 @@ export function AdminConsoleView({
       setGrantBatchId(batches[0].id);
     }
   }, [batches, selectedBatchId, grantBatchId]);
+
+  useEffect(() => {
+    batches.forEach((b) => {
+      if (b.lectureCount > 0) {
+        void syncBatchSyllabusPreviews(adminUid, b.id);
+      }
+    });
+  }, [adminUid, batches]);
 
   useEffect(() => {
     if (!selectedBatchId) {

@@ -3,6 +3,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   increment,
   serverTimestamp,
   setDoc,
@@ -464,16 +465,34 @@ export async function addUnlistedLecture(
   }
 
   const lectureId = makeDocId('lec');
+  const cleanTitle = sanitizeString(input.title, VALIDATION_LIMITS.lectureDocTitleMax);
+  const cleanModule = sanitizeString(input.moduleName, VALIDATION_LIMITS.moduleNameMax);
+  const cleanOrder = Math.min(1000, Math.max(0, Math.round(input.orderIndex)));
+  const cleanDuration = Math.min(600, Math.max(1, Math.round(input.durationMinutes)));
+  const cleanSummary = sanitizeString(input.summary || '', VALIDATION_LIMITS.lectureSummaryMax);
+
   const batch = writeBatch(db);
   batch.set(doc(db, 'batches', batchId, 'lectures', lectureId), {
     batchId,
-    title: sanitizeString(input.title, VALIDATION_LIMITS.lectureDocTitleMax),
-    moduleName: sanitizeString(input.moduleName, VALIDATION_LIMITS.moduleNameMax),
-    orderIndex: Math.min(1000, Math.max(0, Math.round(input.orderIndex))),
-    durationMinutes: Math.min(600, Math.max(1, Math.round(input.durationMinutes))),
+    title: cleanTitle,
+    moduleName: cleanModule,
+    orderIndex: cleanOrder,
+    durationMinutes: cleanDuration,
     youtubeUrl: sanitizeString(input.youtubeUrl, VALIDATION_LIMITS.youtubeUrlMax),
     youtubeVideoId: videoId,
-    summary: sanitizeString(input.summary || '', VALIDATION_LIMITS.lectureSummaryMax),
+    summary: cleanSummary,
+    thumbnailUrl: cleanThumb,
+    createdBy: adminUid,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  batch.set(doc(db, 'batches', batchId, 'syllabus', lectureId), {
+    batchId,
+    title: cleanTitle,
+    moduleName: cleanModule,
+    orderIndex: cleanOrder,
+    durationMinutes: cleanDuration,
+    summary: cleanSummary,
     thumbnailUrl: cleanThumb,
     createdBy: adminUid,
     createdAt: serverTimestamp(),
@@ -515,19 +534,59 @@ export async function updateUnlistedLecture(
     throw new Error('Thumbnail must be an https:// URL, uploaded image, or studio artwork.');
   }
 
+  const cleanTitle = sanitizeString(input.title, VALIDATION_LIMITS.lectureDocTitleMax);
+  const cleanModule = sanitizeString(input.moduleName, VALIDATION_LIMITS.moduleNameMax);
+  const cleanOrder = Math.min(1000, Math.max(0, Math.round(input.orderIndex)));
+  const cleanDuration = Math.min(600, Math.max(1, Math.round(input.durationMinutes)));
+  const cleanSummary = sanitizeString(input.summary || '', VALIDATION_LIMITS.lectureSummaryMax);
+
+  const lectureRef = doc(db, 'batches', batchId, 'lectures', lectureId);
+  const syllabusRef = doc(db, 'batches', batchId, 'syllabus', lectureId);
   const path = `batches/${batchId}/lectures/${lectureId}`;
+
   try {
-    await updateDoc(doc(db, 'batches', batchId, 'lectures', lectureId), {
-      title: sanitizeString(input.title, VALIDATION_LIMITS.lectureDocTitleMax),
-      moduleName: sanitizeString(input.moduleName, VALIDATION_LIMITS.moduleNameMax),
-      orderIndex: Math.min(1000, Math.max(0, Math.round(input.orderIndex))),
-      durationMinutes: Math.min(600, Math.max(1, Math.round(input.durationMinutes))),
+    const syllabusSnap = await getDoc(syllabusRef);
+    const batch = writeBatch(db);
+    batch.update(lectureRef, {
+      title: cleanTitle,
+      moduleName: cleanModule,
+      orderIndex: cleanOrder,
+      durationMinutes: cleanDuration,
       youtubeUrl: sanitizeString(input.youtubeUrl, VALIDATION_LIMITS.youtubeUrlMax),
       youtubeVideoId: videoId,
-      summary: sanitizeString(input.summary || '', VALIDATION_LIMITS.lectureSummaryMax),
+      summary: cleanSummary,
       thumbnailUrl: cleanThumb,
       updatedAt: serverTimestamp(),
     });
+    if (syllabusSnap.exists()) {
+      batch.update(syllabusRef, {
+        title: cleanTitle,
+        moduleName: cleanModule,
+        orderIndex: cleanOrder,
+        durationMinutes: cleanDuration,
+        summary: cleanSummary,
+        thumbnailUrl: cleanThumb,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      const lectureSnap = await getDoc(lectureRef);
+      const createdBy = lectureSnap.data()?.createdBy;
+      if (createdBy) {
+        batch.set(syllabusRef, {
+          batchId,
+          title: cleanTitle,
+          moduleName: cleanModule,
+          orderIndex: cleanOrder,
+          durationMinutes: cleanDuration,
+          summary: cleanSummary,
+          thumbnailUrl: cleanThumb,
+          createdBy,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
+    await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
@@ -543,28 +602,81 @@ export async function updateLectureThumbnail(
     throw new Error('Thumbnail must be an https:// URL, uploaded image, or studio artwork.');
   }
 
+  const lectureRef = doc(db, 'batches', batchId, 'lectures', lectureId);
+  const syllabusRef = doc(db, 'batches', batchId, 'syllabus', lectureId);
   const path = `batches/${batchId}/lectures/${lectureId}`;
   try {
-    await updateDoc(doc(db, 'batches', batchId, 'lectures', lectureId), {
+    const syllabusSnap = await getDoc(syllabusRef);
+    const batch = writeBatch(db);
+    batch.update(lectureRef, {
       thumbnailUrl: cleanThumb,
       updatedAt: serverTimestamp(),
     });
+    if (syllabusSnap.exists()) {
+      batch.update(syllabusRef, {
+        thumbnailUrl: cleanThumb,
+        updatedAt: serverTimestamp(),
+      });
+    }
+    await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
 
 export async function deleteUnlistedLecture(batchId: string, lectureId: string): Promise<void> {
-  const batch = writeBatch(db);
-  batch.delete(doc(db, 'batches', batchId, 'lectures', lectureId));
-  batch.update(doc(db, 'batches', batchId), {
-    lectureCount: increment(-1),
-    updatedAt: serverTimestamp(),
-  });
+  const syllabusRef = doc(db, 'batches', batchId, 'syllabus', lectureId);
+  const path = `batches/${batchId}/lectures/${lectureId}`;
   try {
+    const syllabusSnap = await getDoc(syllabusRef);
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'batches', batchId, 'lectures', lectureId));
+    if (syllabusSnap.exists()) {
+      batch.delete(syllabusRef);
+    }
+    batch.update(doc(db, 'batches', batchId), {
+      lectureCount: increment(-1),
+      updatedAt: serverTimestamp(),
+    });
     await batch.commit();
   } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, `batches/${batchId}/lectures/${lectureId}`);
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function syncBatchSyllabusPreviews(
+  adminUid: string,
+  batchId: string
+): Promise<void> {
+  try {
+    const [lecturesSnap, syllabusSnap] = await Promise.all([
+      getDocs(collection(db, 'batches', batchId, 'lectures')),
+      getDocs(collection(db, 'batches', batchId, 'syllabus')),
+    ]);
+
+    const existingIds = new Set(syllabusSnap.docs.map((d) => d.id));
+    const missing = lecturesSnap.docs.filter((d) => !existingIds.has(d.id));
+    if (missing.length === 0) return;
+
+    const batch = writeBatch(db);
+    missing.forEach((d) => {
+      const data = d.data() as Omit<Lecture, 'id'>;
+      batch.set(doc(db, 'batches', batchId, 'syllabus', d.id), {
+        batchId,
+        title: sanitizeString(data.title || 'Lecture', VALIDATION_LIMITS.lectureDocTitleMax),
+        moduleName: sanitizeString(data.moduleName || 'Module 1', VALIDATION_LIMITS.moduleNameMax),
+        orderIndex: Math.min(1000, Math.max(0, Math.round(data.orderIndex ?? 0))),
+        durationMinutes: Math.min(600, Math.max(1, Math.round(data.durationMinutes ?? 10))),
+        summary: sanitizeString(data.summary || '', VALIDATION_LIMITS.lectureSummaryMax),
+        thumbnailUrl: isSafeThumbnailUrl(data.thumbnailUrl ?? '') ? (data.thumbnailUrl ?? '') : '',
+        createdBy: data.createdBy || adminUid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  } catch {
+    // Non-blocking background sync
   }
 }
 

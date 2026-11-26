@@ -156,6 +156,28 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidLecturePreview(data) {
+      return data.keys().hasAll(['batchId', 'title', 'moduleName', 'orderIndex', 'durationMinutes', 'summary', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['batchId', 'title', 'moduleName', 'orderIndex', 'durationMinutes', 'summary', 'thumbnailUrl', 'createdBy', 'createdAt', 'updatedAt']) &&
+        isValidId(data.batchId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 140 &&
+        data.moduleName is string && data.moduleName.size() >= 1 && data.moduleName.size() <= 80 &&
+        data.orderIndex is number && data.orderIndex >= 0 && data.orderIndex <= 1000 &&
+        data.durationMinutes is number && data.durationMinutes >= 1 && data.durationMinutes <= 600 &&
+        data.summary is string && data.summary.size() <= 600 &&
+        (!('thumbnailUrl' in data) || (
+          data.thumbnailUrl is string &&
+          data.thumbnailUrl.size() <= 150000 &&
+          (
+            data.thumbnailUrl == '' ||
+            data.thumbnailUrl.matches('^(https://[^\\s]+|/src/assets/[^\\s]+|data:image/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+)$')
+          )
+        )) &&
+        isValidId(data.createdBy) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
     function isValidBatchPurchase(data) {
       return data.keys().hasAll(['userId', 'batchId', 'batchTitle', 'amountPaid', 'status', 'grantedBy', 'purchasedAt', 'updatedAt']) &&
         data.keys().hasOnly(['userId', 'batchId', 'batchTitle', 'amountPaid', 'status', 'grantedBy', 'purchasedAt', 'updatedAt']) &&
@@ -294,6 +316,34 @@ service cloud.firestore {
           incoming().createdAt == existing().createdAt &&
           incoming().updatedAt == request.time &&
           incoming().diff(existing()).affectedKeys().hasOnly(['title', 'moduleName', 'orderIndex', 'durationMinutes', 'youtubeUrl', 'youtubeVideoId', 'summary', 'thumbnailUrl', 'updatedAt']);
+        allow delete: if isAdmin() && isValidId(batchId) && isValidId(lectureId);
+      }
+
+      // Public Syllabus Preview Subcollection: /batches/{batchId}/syllabus/{lectureId}
+      // Exposes lecture card metadata (title, module, duration, thumbnail, summary) for published batches
+      // without exposing private youtubeUrl or youtubeVideoId.
+      match /syllabus/{lectureId} {
+        allow get: if isValidId(batchId) && isValidId(lectureId) && (
+          isAdmin() ||
+          (exists(/databases/$(database)/documents/batches/$(batchId)) &&
+           get(/databases/$(database)/documents/batches/$(batchId)).data.isPublished == true)
+        );
+        allow list: if isAdmin() || (
+          exists(/databases/$(database)/documents/batches/$(batchId)) &&
+          get(/databases/$(database)/documents/batches/$(batchId)).data.isPublished == true
+        );
+        allow create: if isAdmin() && isValidId(batchId) && isValidId(lectureId) && isValidLecturePreview(incoming()) &&
+          incoming().batchId == batchId &&
+          incoming().createdBy == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          exists(/databases/$(database)/documents/batches/$(batchId));
+        allow update: if isAdmin() && isValidId(batchId) && isValidId(lectureId) && isValidLecturePreview(incoming()) &&
+          incoming().batchId == existing().batchId &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'moduleName', 'orderIndex', 'durationMinutes', 'summary', 'thumbnailUrl', 'updatedAt']);
         allow delete: if isAdmin() && isValidId(batchId) && isValidId(lectureId);
       }
     }

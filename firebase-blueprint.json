@@ -331,6 +331,58 @@
       },
       "required": ["batchId", "title", "moduleName", "orderIndex", "durationMinutes", "youtubeUrl", "youtubeVideoId", "summary", "createdBy", "createdAt", "updatedAt"]
     },
+    "LecturePreview": {
+      "title": "LecturePreview",
+      "description": "Public lecture card preview metadata belonging to a batch. Excludes private YouTube URLs and video IDs.",
+      "type": "object",
+      "properties": {
+        "batchId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "moduleName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "orderIndex": {
+          "type": "number"
+        },
+        "durationMinutes": {
+          "type": "number"
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "thumbnailUrl": {
+          "type": "string",
+          "maxLength": 150000
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["batchId", "title", "moduleName", "orderIndex", "durationMinutes", "summary", "createdBy", "createdAt", "updatedAt"]
+    },
     "BatchPurchase": {
       "title": "BatchPurchase",
       "description": "Enrollment receipt granting a student access to a purchased batch's unlisted lecture videos.",
@@ -406,6 +458,10 @@
     "/batches/{batchId}/lectures/{lectureId}": {
       "schema": { "$ref": "#/entities/Lecture" },
       "description": "Unlisted YouTube lecture videos strictly scoped to admins and students with an active purchase for {batchId}."
+    },
+    "/batches/{batchId}/syllabus/{lectureId}": {
+      "schema": { "$ref": "#/entities/LecturePreview" },
+      "description": "Public lecture card preview metadata for published batches without unlisted video URLs or IDs."
     },
     "/purchases/{purchaseId}": {
       "schema": { "$ref": "#/entities/BatchPurchase" },

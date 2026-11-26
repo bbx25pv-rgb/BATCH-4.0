@@ -43,7 +43,7 @@ import { AdminConsoleView } from '@/src/components/AdminConsoleView';
 import { SignInModal } from '@/src/components/SignInModal';
 
 function CadenceApp() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('logs');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('batches');
   const [authReady, setAuthReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [isVerifiedUser, setIsVerifiedUser] = useState(false);
@@ -59,7 +59,7 @@ function CadenceApp() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [purchases, setPurchases] = useState<BatchPurchase[]>([]);
   const [loadingUserData, setLoadingUserData] = useState(false);
-  const [loadingBatches, setLoadingBatches] = useState(false);
+  const [loadingBatches, setLoadingBatches] = useState(true);
 
   const syncUserSession = useCallback(async (nextUser: User | null) => {
     setUser(nextUser);
@@ -71,7 +71,6 @@ function CadenceApp() {
       setSubjects([]);
       setSessions([]);
       setHabits([]);
-      setBatches([]);
       setPurchases([]);
       setAuthReady(true);
       return;
@@ -127,9 +126,9 @@ function CadenceApp() {
     return () => unsub();
   }, [syncUserSession]);
 
-  // Attach user-scoped Firestore listeners ONLY when authReady && verified user
+  // Public catalog listener: show all published batches even before sign-in
   useEffect(() => {
-    if (!authReady || !user) return;
+    if (!authReady) return;
 
     setLoadingBatches(true);
     const batchesQuery = isAdmin
@@ -153,11 +152,16 @@ function CadenceApp() {
       }
     );
 
-    if (!isVerifiedUser) {
+    return () => {
+      unsubBatches();
+    };
+  }, [authReady, isAdmin]);
+
+  // Attach user-scoped Firestore listeners ONLY when authReady && verified user
+  useEffect(() => {
+    if (!authReady || !user || !isVerifiedUser) {
       setLoadingUserData(false);
-      return () => {
-        unsubBatches();
-      };
+      return;
     }
 
     setLoadingUserData(true);
@@ -232,7 +236,6 @@ function CadenceApp() {
     );
 
     return () => {
-      unsubBatches();
       unsubSubjects();
       unsubSessions();
       unsubHabits();
@@ -242,7 +245,7 @@ function CadenceApp() {
 
   async function handleSignOut() {
     await signOut(auth);
-    if (activeTab === 'admin') setActiveTab('logs');
+    if (activeTab === 'admin') setActiveTab('batches');
   }
 
   async function handleResendVerification() {
@@ -369,6 +372,7 @@ function CadenceApp() {
           <SessionLogsView
             userId={user && isVerifiedUser ? user.uid : null}
             onRequireSignIn={() => setShowSignInModal(true)}
+            onBrowseBatches={() => setActiveTab('batches')}
             subjects={subjects}
             sessions={sessions}
             habits={habits}
