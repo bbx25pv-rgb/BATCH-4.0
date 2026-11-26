@@ -195,16 +195,24 @@ service cloud.firestore {
 
     function isValidBatchPurchase(data) {
       return data.keys().hasAll(['userId', 'batchId', 'batchTitle', 'amountPaid', 'status', 'grantedBy', 'purchasedAt', 'updatedAt']) &&
-        data.keys().hasOnly(['userId', 'batchId', 'batchTitle', 'amountPaid', 'status', 'grantedBy', 'paymentMethodId', 'paymentMethodLabel', 'paymentReference', 'purchasedAt', 'updatedAt']) &&
+        data.keys().hasOnly(['userId', 'batchId', 'batchTitle', 'amountPaid', 'status', 'grantedBy', 'paymentMethodId', 'paymentMethodLabel', 'paymentReference', 'paymentScreenshotUrl', 'purchasedAt', 'updatedAt']) &&
         isValidId(data.userId) &&
         isValidId(data.batchId) &&
         data.batchTitle is string && data.batchTitle.size() >= 1 && data.batchTitle.size() <= 120 &&
         data.amountPaid is number && data.amountPaid >= 0 && data.amountPaid <= 500000 &&
-        data.status in ['active', 'revoked'] &&
+        data.status in ['pending', 'active', 'revoked'] &&
         isValidId(data.grantedBy) &&
         (!('paymentMethodId' in data) || (data.paymentMethodId is string && data.paymentMethodId.size() <= 128)) &&
         (!('paymentMethodLabel' in data) || (data.paymentMethodLabel is string && data.paymentMethodLabel.size() <= 80)) &&
         (!('paymentReference' in data) || (data.paymentReference is string && data.paymentReference.size() <= 120)) &&
+        (!('paymentScreenshotUrl' in data) || (
+          data.paymentScreenshotUrl is string &&
+          data.paymentScreenshotUrl.size() <= 350000 &&
+          (
+            data.paymentScreenshotUrl == '' ||
+            data.paymentScreenshotUrl.matches('^data:image/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$')
+          )
+        )) &&
         data.purchasedAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -417,9 +425,21 @@ service cloud.firestore {
             purchaseId == request.auth.uid + '_' + incoming().batchId &&
             incoming().userId == request.auth.uid &&
             incoming().grantedBy == request.auth.uid &&
-            incoming().status == 'active' &&
+            incoming().status == 'pending' &&
             exists(/databases/$(database)/documents/batches/$(incoming().batchId)) &&
-            get(/databases/$(database)/documents/batches/$(incoming().batchId)).data.isPublished == true
+            get(/databases/$(database)/documents/batches/$(incoming().batchId)).data.isPublished == true &&
+            incoming().amountPaid == get(/databases/$(database)/documents/batches/$(incoming().batchId)).data.priceUsd &&
+            (
+              incoming().amountPaid == 0 ||
+              (
+                'paymentReference' in incoming() &&
+                incoming().paymentReference is string &&
+                incoming().paymentReference.size() >= 4 &&
+                'paymentScreenshotUrl' in incoming() &&
+                incoming().paymentScreenshotUrl is string &&
+                incoming().paymentScreenshotUrl.size() >= 30
+              )
+            )
           ) ||
           (
             isAdmin() &&
@@ -427,12 +447,37 @@ service cloud.firestore {
             exists(/databases/$(database)/documents/batches/$(incoming().batchId))
           )
         );
-      allow update: if isAdmin() && isValidId(purchaseId) && isValidBatchPurchase(incoming()) &&
+      allow update: if isVerified() && isValidId(purchaseId) && isValidBatchPurchase(incoming()) &&
         incoming().userId == existing().userId &&
         incoming().batchId == existing().batchId &&
         incoming().purchasedAt == existing().purchasedAt &&
         incoming().updatedAt == request.time &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'amountPaid', 'batchTitle', 'grantedBy', 'updatedAt']);
+        (
+          (
+            isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'amountPaid', 'batchTitle', 'grantedBy', 'updatedAt'])
+          ) ||
+          (
+            existing().userId == request.auth.uid &&
+            existing().status == 'pending' &&
+            incoming().status == 'pending' &&
+            incoming().grantedBy == existing().grantedBy &&
+            incoming().amountPaid == existing().amountPaid &&
+            incoming().batchTitle == existing().batchTitle &&
+            (
+              incoming().amountPaid == 0 ||
+              (
+                'paymentReference' in incoming() &&
+                incoming().paymentReference is string &&
+                incoming().paymentReference.size() >= 4 &&
+                'paymentScreenshotUrl' in incoming() &&
+                incoming().paymentScreenshotUrl is string &&
+                incoming().paymentScreenshotUrl.size() >= 30
+              )
+            ) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['paymentMethodId', 'paymentMethodLabel', 'paymentReference', 'paymentScreenshotUrl', 'updatedAt'])
+          )
+        );
       allow delete: if isAdmin() && isValidId(purchaseId);
     }
 

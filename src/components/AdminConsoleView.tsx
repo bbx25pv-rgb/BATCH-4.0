@@ -2,7 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Banknote,
   Building2,
+  Check,
   CheckCircle2,
+  Clock,
+  Copy,
   CreditCard,
   Eye,
   EyeOff,
@@ -13,11 +16,13 @@ import {
   Pencil,
   Plus,
   QrCode,
+  Search,
   ShieldCheck,
   Sparkles,
   Trash2,
   Upload,
   UserCheck,
+  Users,
   Video,
   X,
 } from 'lucide-react';
@@ -37,6 +42,7 @@ import {
 import { auth, db, googleProvider, handleFirestoreError, OperationType } from '@/src/lib/firebase';
 import {
   addUnlistedLecture,
+  adminDeletePurchase,
   adminGrantBatchAccess,
   adminTogglePurchaseStatus,
   createBatch,
@@ -68,6 +74,7 @@ import {
   Lecture,
   PaymentMethod,
   PaymentMethodType,
+  UserProfile,
   VALIDATION_LIMITS,
 } from '@/src/types';
 import { CadenceVideoPlayer } from '@/src/components/CadenceVideoPlayer';
@@ -77,6 +84,7 @@ interface AdminConsoleViewProps {
   batches: Batch[];
   purchases: BatchPurchase[];
   paymentMethods: PaymentMethod[];
+  students: UserProfile[];
   onAuthRefresh: () => Promise<void>;
 }
 
@@ -106,6 +114,7 @@ export function AdminConsoleView({
   batches,
   purchases,
   paymentMethods,
+  students,
   onAuthRefresh,
 }: AdminConsoleViewProps) {
   const [selectedBatchId, setSelectedBatchId] = useState<string>('');
@@ -171,9 +180,17 @@ export function AdminConsoleView({
   const [editingThumbUrl, setEditingThumbUrl] = useState('');
   const [savingThumb, setSavingThumb] = useState(false);
 
-  // Grant access state
+  // Grant access & student UID lookup state
   const [grantUid, setGrantUid] = useState('');
   const [grantBatchId, setGrantBatchId] = useState('');
+  const [grantReference, setGrantReference] = useState('');
+  const [studentSearch, setStudentSearch] = useState('');
+  const [enrollmentSearch, setEnrollmentSearch] = useState('');
+  const [enrollmentStatusFilter, setEnrollmentStatusFilter] = useState<
+    'all' | 'pending' | 'active' | 'revoked'
+  >('all');
+  const [copiedUid, setCopiedUid] = useState<string | null>(null);
+  const [inspectPurchase, setInspectPurchase] = useState<BatchPurchase | null>(null);
   const [granting, setGranting] = useState(false);
 
   // Payment methods state
@@ -553,15 +570,97 @@ export function AdminConsoleView({
     }
   }
 
+  const studentByUid = useMemo(() => {
+    const map = new Map<string, UserProfile>();
+    students.forEach((s) => map.set(s.uid, s));
+    return map;
+  }, [students]);
+
+  const cleanGrantUid = grantUid.trim();
+
+  const matchedGrantStudent = useMemo(
+    () => (cleanGrantUid ? studentByUid.get(cleanGrantUid) ?? null : null),
+    [studentByUid, cleanGrantUid]
+  );
+
+  const selectedStudentPurchases = useMemo(
+    () =>
+      cleanGrantUid
+        ? purchases.filter((p) => p.userId === cleanGrantUid)
+        : [],
+    [purchases, cleanGrantUid]
+  );
+
+  const filteredStudents = useMemo(() => {
+    const term = studentSearch.trim().toLowerCase();
+    if (!term) return students;
+    return students.filter((s) => {
+      return (
+        s.displayName.toLowerCase().includes(term) ||
+        s.email.toLowerCase().includes(term) ||
+        s.phoneNumber.toLowerCase().includes(term) ||
+        s.uid.toLowerCase().includes(term)
+      );
+    });
+  }, [students, studentSearch]);
+
+  const pendingPurchases = useMemo(() => {
+    return purchases
+      .filter((p) => p.status === 'pending')
+      .sort((a, b) => {
+        const ta = a.purchasedAt ? a.purchasedAt.toMillis() : 0;
+        const tb = b.purchasedAt ? b.purchasedAt.toMillis() : 0;
+        return tb - ta;
+      });
+  }, [purchases]);
+
+  const filteredPurchases = useMemo(() => {
+    const term = enrollmentSearch.trim().toLowerCase();
+    return purchases
+      .filter((p) => {
+        if (enrollmentStatusFilter !== 'all' && p.status !== enrollmentStatusFilter) {
+          return false;
+        }
+        if (!term) return true;
+        const student = studentByUid.get(p.userId);
+        return (
+          p.userId.toLowerCase().includes(term) ||
+          p.batchTitle.toLowerCase().includes(term) ||
+          (p.paymentReference ?? '').toLowerCase().includes(term) ||
+          (student?.displayName ?? '').toLowerCase().includes(term) ||
+          (student?.email ?? '').toLowerCase().includes(term) ||
+          (student?.phoneNumber ?? '').toLowerCase().includes(term)
+        );
+      })
+      .sort((a, b) => {
+        if (a.status === 'pending' && b.status !== 'pending') return -1;
+        if (a.status !== 'pending' && b.status === 'pending') return 1;
+        const ta = a.purchasedAt ? a.purchasedAt.toMillis() : 0;
+        const tb = b.purchasedAt ? b.purchasedAt.toMillis() : 0;
+        return tb - ta;
+      });
+  }, [purchases, enrollmentSearch, enrollmentStatusFilter, studentByUid]);
+
   const matchingStudentPurchase = useMemo(() => {
-    const cleanUid = grantUid.trim();
-    if (!cleanUid || !grantBatchId) return null;
+    if (!cleanGrantUid || !grantBatchId) return null;
     return (
       purchases.find(
-        (p) => p.userId === cleanUid && p.batchId === grantBatchId
+        (p) => p.userId === cleanGrantUid && p.batchId === grantBatchId
       ) ?? null
     );
-  }, [purchases, grantUid, grantBatchId]);
+  }, [purchases, cleanGrantUid, grantBatchId]);
+
+  async function handleCopyUid(key: string, uidValue: string) {
+    try {
+      await navigator.clipboard.writeText(uidValue);
+      setCopiedUid(key);
+      window.setTimeout(() => {
+        setCopiedUid((prev) => (prev === key ? null : prev));
+      }, 1500);
+    } catch {
+      // Clipboard unavailable
+    }
+  }
 
   async function handleGrantStudentAccess(e: React.FormEvent) {
     e.preventDefault();
@@ -576,15 +675,24 @@ export function AdminConsoleView({
     setGranting(true);
     try {
       if (!(await ensureVerifiedAdminSession())) return;
-      const outcome = await adminGrantBatchAccess(adminUid, cleanUid, targetBatch);
+      const outcome = await adminGrantBatchAccess(
+        adminUid,
+        cleanUid,
+        targetBatch,
+        grantReference
+      );
+      const studentLabel = studentByUid.get(cleanUid)?.displayName || cleanUid;
       if (outcome === 'already_active') {
-        setFeedback(`Student ${cleanUid} already has active access to ${targetBatch.title}.`);
+        setFeedback(`${studentLabel} already has active access to ${targetBatch.title}.`);
+      } else if (outcome === 'approved') {
+        setGrantReference('');
+        setFeedback(`Approved payment & unlocked ${targetBatch.title} for ${studentLabel}.`);
       } else if (outcome === 'restored') {
-        setGrantUid('');
-        setFeedback(`Restored active access to ${targetBatch.title} for ${cleanUid}.`);
+        setGrantReference('');
+        setFeedback(`Restored active access to ${targetBatch.title} for ${studentLabel}.`);
       } else {
-        setGrantUid('');
-        setFeedback(`Granted active access to ${targetBatch.title}.`);
+        setGrantReference('');
+        setFeedback(`Granted active access to ${targetBatch.title} for ${studentLabel}.`);
       }
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Unable to grant access.');
@@ -597,16 +705,45 @@ export function AdminConsoleView({
     setErrorMsg(null);
     setFeedback(null);
     const nextStatus = purchase.status === 'active' ? 'revoked' : 'active';
+    const studentLabel = studentByUid.get(purchase.userId)?.displayName || purchase.userId;
     try {
       if (!(await ensureVerifiedAdminSession())) return;
       await adminTogglePurchaseStatus(adminUid, purchase.id, nextStatus);
       setFeedback(
         nextStatus === 'active'
-          ? `Restored access to ${purchase.batchTitle} for ${purchase.userId}.`
-          : `Revoked access to ${purchase.batchTitle} for ${purchase.userId}.`
+          ? purchase.status === 'pending'
+            ? `Approved payment & unlocked ${purchase.batchTitle} for ${studentLabel}.`
+            : `Restored access to ${purchase.batchTitle} for ${studentLabel}.`
+          : `Revoked access to ${purchase.batchTitle} for ${studentLabel}.`
       );
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Unable to update student batch access.');
+    }
+  }
+
+  async function handleRejectPendingPurchase(purchase: BatchPurchase) {
+    setErrorMsg(null);
+    setFeedback(null);
+    const studentLabel = studentByUid.get(purchase.userId)?.displayName || purchase.userId;
+    try {
+      if (!(await ensureVerifiedAdminSession())) return;
+      await adminTogglePurchaseStatus(adminUid, purchase.id, 'revoked');
+      setFeedback(`Marked ${purchase.batchTitle} payment request as rejected for ${studentLabel}.`);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Unable to reject payment request.');
+    }
+  }
+
+  async function handleDeletePurchase(purchase: BatchPurchase) {
+    setErrorMsg(null);
+    setFeedback(null);
+    const studentLabel = studentByUid.get(purchase.userId)?.displayName || purchase.userId;
+    try {
+      if (!(await ensureVerifiedAdminSession())) return;
+      await adminDeletePurchase(purchase.id);
+      setFeedback(`Removed ${purchase.batchTitle} enrollment record for ${studentLabel}.`);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Unable to remove enrollment record.');
     }
   }
 
@@ -846,6 +983,24 @@ export function AdminConsoleView({
       {errorMsg && (
         <div className="px-4 py-3 bg-rose-50 border border-rose-200 rounded-lg text-sm text-rose-800">
           {errorMsg}
+        </div>
+      )}
+
+      {pendingPurchases.length > 0 && (
+        <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-950 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+            <span>
+              <strong>{pendingPurchases.length}</strong> student payment{' '}
+              {pendingPurchases.length === 1 ? 'request is' : 'requests are'} awaiting your verification and approval.
+            </span>
+          </div>
+          <a
+            href="#pending-approvals-section"
+            className="px-3 py-1.5 bg-amber-900 hover:bg-amber-800 text-white text-xs font-medium rounded-md whitespace-nowrap"
+          >
+            Review Pending Payments
+          </a>
         </div>
       )}
 
@@ -2218,32 +2373,408 @@ export function AdminConsoleView({
           </div>
 
           {/* Student Enrollment & Access Control */}
-          <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-            <div>
-              <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
-                <UserCheck className="w-4 h-4 text-blue-600" />
-                <span>Student Batch Enrollments</span>
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Grant or revoke access to batch lectures by student UID.
-              </p>
+          <div
+            id="pending-approvals-section"
+            className="bg-white border border-slate-200 rounded-xl p-6 space-y-4"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+                  <UserCheck className="w-4 h-4 text-blue-600" />
+                  <span>Student Batch Enrollments</span>
+                  {pendingPurchases.length > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[11px] font-mono font-semibold">
+                      {pendingPurchases.length} pending
+                    </span>
+                  )}
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Verify student payments, approve pending requests, or manage batch access by Student User UID.
+                </p>
+              </div>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-mono shrink-0">
+                <Users className="w-3 h-3" />
+                <span>{students.length}</span>
+              </span>
             </div>
+
+            {/* Pending Payment Verification Queue */}
+            {pendingPurchases.length > 0 && (
+              <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-lg space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-950">
+                    <Clock className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Pending Payment Approvals ({pendingPurchases.length})</span>
+                  </span>
+                  <span className="text-[11px] text-amber-800">
+                    Inspect screenshot & UTR, then approve
+                  </span>
+                </div>
+                <div className="divide-y divide-amber-200/70 bg-white border border-amber-200 rounded-md">
+                  {pendingPurchases.map((p) => {
+                    const pendingStudent = studentByUid.get(p.userId);
+                    const submittedAtText = p.purchasedAt
+                      ? p.purchasedAt.toDate().toLocaleString()
+                      : '';
+                    return (
+                      <div key={p.id} className="p-3 space-y-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-slate-900 truncate">
+                              {p.batchTitle}{' '}
+                              <span className="font-mono text-slate-600">
+                                · {formatInr(p.amountPaid)}
+                              </span>
+                            </p>
+                            <p className="text-[11px] text-slate-700 truncate">
+                              {pendingStudent
+                                ? `${pendingStudent.displayName} · ${
+                                    pendingStudent.email || pendingStudent.phoneNumber
+                                  }`
+                                : 'Registered Student'}
+                            </p>
+                            <p className="text-[11px] font-mono text-slate-500 truncate">
+                              UID: {p.userId}
+                              {submittedAtText ? ` · ${submittedAtText}` : ''}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            aria-label={`Copy UID ${p.userId}`}
+                            title="Copy Student UID"
+                            onClick={() => void handleCopyUid(`pend-${p.id}`, p.userId)}
+                            className="p-1.5 text-slate-400 hover:text-blue-700 rounded transition-colors shrink-0"
+                          >
+                            {copiedUid === `pend-${p.id}` ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+
+                        <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-md flex items-start gap-3">
+                          {p.paymentScreenshotUrl ? (
+                            <button
+                              type="button"
+                              onClick={() => setInspectPurchase(p)}
+                              className="group relative w-16 h-20 rounded border border-slate-200 bg-white overflow-hidden shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                              title="Open full payment screenshot"
+                            >
+                              <img
+                                src={p.paymentScreenshotUrl}
+                                alt={`Payment screenshot from ${pendingStudent?.displayName || p.userId}`}
+                                className="w-full h-full object-cover"
+                              />
+                              <span className="absolute inset-0 bg-slate-950/0 group-hover:bg-slate-950/40 flex items-center justify-center transition-colors">
+                                <Eye className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                              </span>
+                            </button>
+                          ) : (
+                            <div className="w-16 h-20 rounded border border-dashed border-slate-300 bg-white flex flex-col items-center justify-center text-[10px] text-slate-400 text-center px-1 shrink-0">
+                              <ImageIcon className="w-3.5 h-3.5 mb-0.5" />
+                              <span>No image</span>
+                            </div>
+                          )}
+
+                          <div className="min-w-0 flex-1 space-y-1 text-[11px]">
+                            <p className="text-slate-600 truncate">
+                              <span className="text-slate-500">Method:</span>{' '}
+                              <span className="font-medium text-slate-900">
+                                {p.paymentMethodLabel || 'Direct Submission'}
+                              </span>
+                            </p>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-slate-500">UTR No.:</span>
+                              {p.paymentReference ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void handleCopyUid(`utr-${p.id}`, p.paymentReference!)
+                                  }
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-white border border-slate-200 rounded font-mono text-slate-900 hover:border-blue-400"
+                                  title="Copy UTR Number"
+                                >
+                                  <span className="truncate max-w-[160px]">
+                                    {p.paymentReference}
+                                  </span>
+                                  {copiedUid === `utr-${p.id}` ? (
+                                    <Check className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  ) : (
+                                    <Copy className="w-3 h-3 text-slate-400 shrink-0" />
+                                  )}
+                                </button>
+                              ) : (
+                                <span className="font-mono text-slate-400">Not provided</span>
+                              )}
+                            </div>
+                            {p.paymentScreenshotUrl && (
+                              <button
+                                type="button"
+                                onClick={() => setInspectPurchase(p)}
+                                className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-700 hover:underline pt-0.5"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>Inspect Screenshot</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-1.5 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => void handleRejectPendingPurchase(p)}
+                            className="px-2.5 py-1 text-[11px] font-medium rounded border border-rose-200 text-rose-700 hover:bg-rose-50"
+                          >
+                            Reject
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleTogglePurchaseStatus(p)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium rounded bg-emerald-600 hover:bg-emerald-700 text-white"
+                          >
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Approve</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Registered Student UID Directory Picker */}
+            {students.length > 0 && (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-slate-700">
+                    Registered Students ({students.length})
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    Click a student to fill UID
+                  </span>
+                </div>
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    aria-label="Search registered students by name, email, phone, or UID"
+                    value={studentSearch}
+                    onChange={(e) => setStudentSearch(e.target.value)}
+                    placeholder="Search student name, email, phone, or UID..."
+                    className="w-full pl-8 pr-7 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                  />
+                  {studentSearch && (
+                    <button
+                      type="button"
+                      aria-label="Clear student search"
+                      onClick={() => setStudentSearch('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-40 overflow-y-auto divide-y divide-slate-200/70 bg-white border border-slate-200 rounded-md">
+                  {filteredStudents.length === 0 ? (
+                    <p className="p-2.5 text-[11px] text-slate-500 text-center">
+                      No registered students match "{studentSearch.trim()}".
+                    </p>
+                  ) : (
+                    filteredStudents.map((student) => {
+                      const isSelected = cleanGrantUid === student.uid;
+                      const activeCount = purchases.filter(
+                        (p) => p.userId === student.uid && p.status === 'active'
+                      ).length;
+                      return (
+                        <div
+                          key={student.uid}
+                          className={`px-2.5 py-2 flex items-center justify-between gap-2 text-xs transition-colors ${
+                            isSelected ? 'bg-blue-50/70' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setGrantUid(student.uid)}
+                            className="flex-1 min-w-0 text-left"
+                          >
+                            <p className="font-medium text-slate-900 truncate">
+                              {student.displayName}
+                              {activeCount > 0 && (
+                                <span className="ml-1.5 font-mono text-[10px] text-emerald-700">
+                                  · {activeCount} active
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-[11px] text-slate-500 truncate">
+                              {student.email || student.phoneNumber || 'Verified User'}
+                            </p>
+                            <p className="text-[10px] font-mono text-slate-400 truncate">
+                              UID: {student.uid}
+                            </p>
+                          </button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              aria-label={`Copy UID for ${student.displayName}`}
+                              title="Copy Student User UID"
+                              onClick={() => void handleCopyUid(`dir-${student.uid}`, student.uid)}
+                              className="p-1.5 text-slate-400 hover:text-blue-700 rounded transition-colors"
+                            >
+                              {copiedUid === `dir-${student.uid}` ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setGrantUid(student.uid)}
+                              className={`px-2 py-1 text-[11px] font-medium rounded border transition-colors ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-600 text-white'
+                                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              {isSelected ? 'Selected' : 'Select'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleGrantStudentAccess} className="space-y-3">
               <div>
-                <label htmlFor="grant-uid" className="block text-xs font-medium text-slate-700 mb-1">
-                  Student User UID
-                </label>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label htmlFor="grant-uid" className="block text-xs font-medium text-slate-700">
+                    Student User UID
+                  </label>
+                  {cleanGrantUid && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyUid('input-uid', cleanGrantUid)}
+                        className="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:underline"
+                      >
+                        {copiedUid === 'input-uid' ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            <span>Copied</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Copy UID</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGrantUid('');
+                          setGrantReference('');
+                        }}
+                        className="text-[11px] text-slate-500 hover:text-rose-700"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <input
                   id="grant-uid"
                   type="text"
                   required
+                  maxLength={128}
                   value={grantUid}
                   onChange={(e) => setGrantUid(e.target.value)}
-                  placeholder="Firebase Auth UID"
+                  placeholder="Select a student above or paste Firebase Auth UID"
                   className="w-full px-3 py-2 sm:py-1.5 border border-slate-200 rounded-lg text-base sm:text-xs font-mono"
                 />
               </div>
+
+              {/* Selected Student UID Inspector */}
+              {cleanGrantUid && (matchedGrantStudent || selectedStudentPurchases.length > 0) && (
+                <div className="p-3 bg-blue-50/50 border border-blue-200/80 rounded-lg space-y-2 text-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900 truncate">
+                        {matchedGrantStudent?.displayName || 'Student UID'}
+                      </p>
+                      <p className="text-[11px] text-slate-600 truncate">
+                        {matchedGrantStudent
+                          ? matchedGrantStudent.email || matchedGrantStudent.phoneNumber
+                          : 'Matching existing enrollment records'}
+                      </p>
+                    </div>
+                    <span className="font-mono text-[10px] text-blue-800 bg-blue-100 px-1.5 py-0.5 rounded shrink-0">
+                      {selectedStudentPurchases.filter((p) => p.status === 'active').length} active
+                    </span>
+                  </div>
+                  {selectedStudentPurchases.length > 0 && (
+                    <div className="space-y-1 pt-1 border-t border-blue-200/60">
+                      {selectedStudentPurchases.map((sp) => (
+                        <div
+                          key={sp.id}
+                          className="flex items-center justify-between gap-2 text-[11px]"
+                        >
+                          <span className="truncate text-slate-700">
+                            {sp.batchTitle}{' '}
+                            <span
+                              className={`font-mono ${
+                                sp.status === 'active'
+                                  ? 'text-emerald-700'
+                                  : sp.status === 'pending'
+                                  ? 'text-amber-700'
+                                  : 'text-rose-700'
+                              }`}
+                            >
+                              ({sp.status})
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void handleTogglePurchaseStatus(sp)}
+                            className={`text-[11px] font-medium hover:underline shrink-0 ${
+                              sp.status === 'active'
+                                ? 'text-rose-700'
+                                : 'text-emerald-700'
+                            }`}
+                          >
+                            {sp.status === 'active'
+                              ? 'Revoke'
+                              : sp.status === 'pending'
+                              ? 'Approve'
+                              : 'Restore'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="grant-ref" className="block text-[11px] font-medium text-slate-700 mb-1">
+                  Payment / Note Reference (optional)
+                </label>
+                <input
+                  id="grant-ref"
+                  type="text"
+                  maxLength={VALIDATION_LIMITS.paymentReferenceMax}
+                  value={grantReference}
+                  onChange={(e) => setGrantReference(e.target.value)}
+                  placeholder="e.g., UTR 432198765432, Cash receipt, or Scholarship"
+                  className="w-full px-3 py-2 sm:py-1.5 border border-slate-200 rounded-lg text-base sm:text-xs font-mono"
+                />
+              </div>
+
               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <select
                   aria-label="Batch to grant"
@@ -2270,6 +2801,8 @@ export function AdminConsoleView({
                     ? 'Saving...'
                     : matchingStudentPurchase?.status === 'active'
                     ? 'Already Active'
+                    : matchingStudentPurchase?.status === 'pending'
+                    ? 'Approve Pending'
                     : matchingStudentPurchase?.status === 'revoked'
                     ? 'Restore Access'
                     : 'Grant Access'}
@@ -2278,44 +2811,179 @@ export function AdminConsoleView({
               {matchingStudentPurchase && (
                 <p className="text-[11px] text-slate-600">
                   {matchingStudentPurchase.status === 'active'
-                    ? 'This student already has active access to the selected batch.'
-                    : 'This student previously had access revoked. Click Restore Access to re-enable.'}
+                    ? 'This student UID already has active access to the selected batch.'
+                    : matchingStudentPurchase.status === 'pending'
+                    ? 'This student UID submitted a payment awaiting verification. Click Approve Pending to unlock.'
+                    : 'This student UID previously had access revoked. Click Restore Access to re-enable.'}
                 </p>
               )}
             </form>
 
-            <div className="pt-3 border-t border-slate-100 divide-y divide-slate-100 max-h-64 overflow-y-auto">
-              {purchases.length === 0 ? (
-                <p className="text-xs text-slate-500 py-2">
-                  No student batch purchases recorded yet.
-                </p>
-              ) : (
-                purchases.map((p) => (
-                  <div key={p.id} className="py-2.5 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-slate-900 truncate">
-                        {p.batchTitle}
-                      </p>
-                      <p className="text-[11px] font-mono text-slate-500 truncate">
-                        UID: {p.userId} · {p.status}
-                        {p.paymentMethodLabel ? ` · ${p.paymentMethodLabel}` : ''}
-                        {p.paymentReference ? ` (${p.paymentReference})` : ''}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleTogglePurchaseStatus(p)}
-                      className={`px-2.5 py-1 text-xs font-medium rounded border shrink-0 ${
-                        p.status === 'active'
-                          ? 'border-rose-200 text-rose-700 hover:bg-rose-50'
-                          : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
-                      }`}
-                    >
-                      {p.status === 'active' ? 'Revoke' : 'Restore'}
-                    </button>
+            <div className="pt-3 border-t border-slate-100 space-y-2.5">
+              {purchases.length > 0 && (
+                <>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {(
+                      [
+                        { id: 'all', label: `All (${purchases.length})` },
+                        {
+                          id: 'pending',
+                          label: `Pending (${purchases.filter((p) => p.status === 'pending').length})`,
+                        },
+                        {
+                          id: 'active',
+                          label: `Active (${purchases.filter((p) => p.status === 'active').length})`,
+                        },
+                        {
+                          id: 'revoked',
+                          label: `Revoked (${purchases.filter((p) => p.status === 'revoked').length})`,
+                        },
+                      ] as const
+                    ).map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setEnrollmentStatusFilter(tab.id)}
+                        className={`px-2 py-1 text-[11px] font-medium rounded border transition-colors ${
+                          enrollmentStatusFilter === tab.id
+                            ? 'bg-slate-900 text-white border-slate-900'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
                   </div>
-                ))
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      aria-label="Filter student batch enrollments"
+                      value={enrollmentSearch}
+                      onChange={(e) => setEnrollmentSearch(e.target.value)}
+                      placeholder="Filter enrollments by UID, student, batch, or UTR..."
+                      className="w-full pl-8 pr-7 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-base sm:text-xs"
+                    />
+                    {enrollmentSearch && (
+                      <button
+                        type="button"
+                        aria-label="Clear enrollment filter"
+                        onClick={() => setEnrollmentSearch('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </>
               )}
+
+              <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
+                {purchases.length === 0 ? (
+                  <p className="text-xs text-slate-500 py-2">
+                    No student batch purchases recorded yet.
+                  </p>
+                ) : filteredPurchases.length === 0 ? (
+                  <p className="text-xs text-slate-500 py-2">
+                    No matching enrollment records found.
+                  </p>
+                ) : (
+                  filteredPurchases.map((p) => {
+                    const enrolledStudent = studentByUid.get(p.userId);
+                    return (
+                      <div key={p.id} className="py-2.5 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-slate-900 truncate">
+                            {p.batchTitle}
+                          </p>
+                          {enrolledStudent && (
+                            <p className="text-[11px] text-slate-700 truncate">
+                              {enrolledStudent.displayName} ·{' '}
+                              {enrolledStudent.email || enrolledStudent.phoneNumber}
+                            </p>
+                          )}
+                          <p className="text-[11px] font-mono text-slate-500 truncate">
+                            UID: {p.userId} ·{' '}
+                            <span
+                              className={
+                                p.status === 'active'
+                                  ? 'text-emerald-700 font-semibold'
+                                  : p.status === 'pending'
+                                  ? 'text-amber-700 font-semibold'
+                                  : 'text-rose-700 font-semibold'
+                              }
+                            >
+                              {p.status}
+                            </span>
+                            {p.paymentMethodLabel ? ` · ${p.paymentMethodLabel}` : ''}
+                            {p.paymentReference ? ` (${p.paymentReference})` : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {(p.paymentScreenshotUrl || p.paymentReference) && (
+                            <button
+                              type="button"
+                              aria-label={`View payment proof for ${p.batchTitle}`}
+                              title="View UTR & payment screenshot"
+                              onClick={() => setInspectPurchase(p)}
+                              className="p-1.5 text-slate-500 hover:text-blue-700 rounded transition-colors"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            aria-label={`Copy UID ${p.userId}`}
+                            title="Copy Student UID"
+                            onClick={() => void handleCopyUid(`pur-${p.id}`, p.userId)}
+                            className="p-1.5 text-slate-400 hover:text-blue-700 rounded transition-colors"
+                          >
+                            {copiedUid === `pur-${p.id}` ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            title="Load Student UID into form"
+                            onClick={() => setGrantUid(p.userId)}
+                            className="px-2 py-1 text-[11px] font-medium rounded border border-slate-200 text-slate-700 hover:bg-slate-50 shrink-0"
+                          >
+                            Select
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleTogglePurchaseStatus(p)}
+                            className={`px-2.5 py-1 text-xs font-medium rounded border shrink-0 ${
+                              p.status === 'active'
+                                ? 'border-rose-200 text-rose-700 hover:bg-rose-50'
+                                : p.status === 'pending'
+                                ? 'border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700'
+                                : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                            }`}
+                          >
+                            {p.status === 'active'
+                              ? 'Revoke'
+                              : p.status === 'pending'
+                              ? 'Approve'
+                              : 'Restore'}
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Remove enrollment ${p.batchTitle} for ${p.userId}`}
+                            title="Delete enrollment record"
+                            onClick={() => void handleDeletePurchase(p)}
+                            className="p-1.5 text-slate-400 hover:text-rose-700 rounded transition-colors shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
           </div>
 
@@ -3228,6 +3896,189 @@ export function AdminConsoleView({
           </div>
         </div>
       </div>
+
+      {/* Payment Proof Inspection Modal */}
+      {inspectPurchase && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="payment-proof-modal-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setInspectPurchase(null);
+            }
+          }}
+          className="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
+        >
+          <div className="bg-white border border-slate-200 rounded-xl max-w-lg w-full max-h-[92dvh] flex flex-col overflow-hidden shadow-2xl my-auto">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-3 shrink-0">
+              <div className="min-w-0">
+                <p className="text-xs text-slate-500">Payment Verification Details</p>
+                <h2
+                  id="payment-proof-modal-title"
+                  className="text-base font-bold text-slate-900 mt-0.5 truncate"
+                >
+                  {inspectPurchase.batchTitle} · {formatInr(inspectPurchase.amountPaid)}
+                </h2>
+              </div>
+              <button
+                type="button"
+                aria-label="Close payment proof modal"
+                onClick={() => setInspectPurchase(null)}
+                className="min-h-[36px] min-w-[36px] inline-flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4 text-xs">
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                {(() => {
+                  const s = studentByUid.get(inspectPurchase.userId);
+                  return (
+                    <>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-500">Student</span>
+                        <span className="font-semibold text-slate-900 truncate">
+                          {s?.displayName || 'Registered Student'}
+                        </span>
+                      </div>
+                      {s && (
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-500">Contact</span>
+                          <span className="text-slate-700 truncate">
+                            {s.email || s.phoneNumber}
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500">Student UID</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void handleCopyUid(`modal-uid-${inspectPurchase.id}`, inspectPurchase.userId)
+                    }
+                    className="inline-flex items-center gap-1 font-mono text-slate-900 hover:text-blue-700 max-w-[240px]"
+                  >
+                    <span className="truncate">{inspectPurchase.userId}</span>
+                    {copiedUid === `modal-uid-${inspectPurchase.id}` ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    )}
+                  </button>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500">Payment Method</span>
+                  <span className="font-medium text-slate-900">
+                    {inspectPurchase.paymentMethodLabel || 'Direct Submission'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500">UTR / Transaction No.</span>
+                  {inspectPurchase.paymentReference ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handleCopyUid(
+                          `modal-utr-${inspectPurchase.id}`,
+                          inspectPurchase.paymentReference!
+                        )
+                      }
+                      className="inline-flex items-center gap-1 font-mono font-semibold text-slate-900 hover:text-blue-700"
+                    >
+                      <span>{inspectPurchase.paymentReference}</span>
+                      {copiedUid === `modal-utr-${inspectPurchase.id}` ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      )}
+                    </button>
+                  ) : (
+                    <span className="font-mono text-slate-400">Not provided</span>
+                  )}
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500">Status</span>
+                  <span
+                    className={`font-mono font-semibold uppercase ${
+                      inspectPurchase.status === 'active'
+                        ? 'text-emerald-700'
+                        : inspectPurchase.status === 'pending'
+                        ? 'text-amber-700'
+                        : 'text-rose-700'
+                    }`}
+                  >
+                    {inspectPurchase.status}
+                  </span>
+                </div>
+              </div>
+
+              {inspectPurchase.paymentScreenshotUrl ? (
+                <div className="bg-slate-950/5 border border-slate-200 rounded-lg p-2 flex justify-center">
+                  <img
+                    src={inspectPurchase.paymentScreenshotUrl}
+                    alt="Student payment screenshot"
+                    className="max-h-[55dvh] w-auto object-contain rounded"
+                  />
+                </div>
+              ) : (
+                <div className="p-6 border border-dashed border-slate-200 rounded-lg text-center text-slate-500">
+                  No payment screenshot was attached to this record.
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-3.5 border-t border-slate-200 flex items-center justify-end gap-2 bg-slate-50 shrink-0">
+              <button
+                type="button"
+                onClick={() => setInspectPurchase(null)}
+                className="px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg"
+              >
+                Close
+              </button>
+              {inspectPurchase.status === 'pending' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = inspectPurchase;
+                    setInspectPurchase(null);
+                    void handleRejectPendingPurchase(target);
+                  }}
+                  className="px-3.5 py-2 text-xs font-medium text-rose-700 bg-white border border-rose-200 hover:bg-rose-50 rounded-lg"
+                >
+                  Reject Payment
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const target = inspectPurchase;
+                  setInspectPurchase(null);
+                  void handleTogglePurchaseStatus(target);
+                }}
+                className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg text-white ${
+                  inspectPurchase.status === 'active'
+                    ? 'bg-rose-600 hover:bg-rose-700'
+                    : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>
+                  {inspectPurchase.status === 'active'
+                    ? 'Revoke Access'
+                    : inspectPurchase.status === 'pending'
+                    ? 'Approve & Unlock Batch'
+                    : 'Restore Access'}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

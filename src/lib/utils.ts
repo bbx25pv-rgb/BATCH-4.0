@@ -266,3 +266,47 @@ export async function compressSquareQrImageDataUrl(file: File): Promise<string> 
     URL.revokeObjectURL(objectUrl);
   }
 }
+
+export async function compressPaymentScreenshotDataUrl(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Please upload a valid payment screenshot image (JPEG, PNG, or WebP).');
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('Unable to read the selected screenshot image.'));
+      el.src = objectUrl;
+    });
+
+    for (const maxSide of [960, 720, 560]) {
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const width = Math.max(1, Math.round(img.width * scale));
+      const height = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        throw new Error('Canvas image processing is unavailable in this browser.');
+      }
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+
+      for (const quality of [0.82, 0.7, 0.55, 0.42]) {
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        if (dataUrl.length <= VALIDATION_LIMITS.paymentScreenshotMax) {
+          return dataUrl;
+        }
+      }
+    }
+
+    throw new Error('Payment screenshot is too large. Please upload a clearer or cropped screenshot.');
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}

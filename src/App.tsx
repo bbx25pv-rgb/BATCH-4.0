@@ -14,7 +14,7 @@ import {
   query,
   where,
 } from 'firebase/firestore';
-import { MailCheck, RefreshCw, ShieldAlert } from 'lucide-react';
+import { Check, Copy, MailCheck, RefreshCw, ShieldAlert } from 'lucide-react';
 import {
   auth,
   db,
@@ -35,6 +35,7 @@ import {
   PaymentMethod,
   StudySession,
   Subject,
+  UserProfile,
 } from '@/src/types';
 import { ErrorBoundary } from '@/src/components/ErrorBoundary';
 import { Navbar } from '@/src/components/Navbar';
@@ -61,6 +62,8 @@ function CadenceApp() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [purchases, setPurchases] = useState<BatchPurchase[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [students, setStudents] = useState<UserProfile[]>([]);
+  const [copiedFooterUid, setCopiedFooterUid] = useState(false);
   const [loadingUserData, setLoadingUserData] = useState(false);
   const [loadingBatches, setLoadingBatches] = useState(true);
 
@@ -76,6 +79,7 @@ function CadenceApp() {
       setHabits([]);
       setPurchases([]);
       setPaymentMethods([]);
+      setStudents([]);
       setAuthReady(true);
       return;
     }
@@ -262,12 +266,33 @@ function CadenceApp() {
       }
     );
 
+    let unsubStudents: (() => void) | null = null;
+    if (isAdmin) {
+      unsubStudents = onSnapshot(
+        query(collection(db, 'users')),
+        (snap) => {
+          const items: UserProfile[] = snap.docs.map((d) => ({
+            ...(d.data() as UserProfile),
+            uid: d.id,
+          }));
+          items.sort((a, b) => a.displayName.localeCompare(b.displayName));
+          setStudents(items);
+        },
+        (err) => {
+          handleFirestoreError(err, OperationType.LIST, 'users');
+        }
+      );
+    } else {
+      setStudents([]);
+    }
+
     return () => {
       unsubSubjects();
       unsubSessions();
       unsubHabits();
       unsubPurchases();
       unsubPaymentMethods();
+      if (unsubStudents) unsubStudents();
     };
   }, [authReady, user, isVerifiedUser, isAdmin]);
 
@@ -434,6 +459,7 @@ function CadenceApp() {
             batches={batches}
             purchases={purchases}
             paymentMethods={paymentMethods}
+            students={students}
             onAuthRefresh={async () => {
               await syncUserSession(auth.currentUser);
             }}
@@ -522,9 +548,36 @@ function CadenceApp() {
         <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-500">
           <span>Cadence Study · Academic Focus & Cohort Lectures</span>
           {user && (
-            <span className="font-mono truncate max-w-full sm:max-w-md">
-              Signed in as {user.email || user.phoneNumber || 'User'} · UID: {user.uid}
-            </span>
+            <div className="flex flex-wrap items-center gap-2 max-w-full">
+              <span className="font-mono truncate max-w-full sm:max-w-md">
+                Signed in as {user.email || user.phoneNumber || 'User'} · UID: {user.uid}
+              </span>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(user.uid);
+                    setCopiedFooterUid(true);
+                    window.setTimeout(() => setCopiedFooterUid(false), 1500);
+                  } catch {
+                    // Clipboard unavailable
+                  }
+                }}
+                className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-medium transition-colors shrink-0"
+              >
+                {copiedFooterUid ? (
+                  <>
+                    <Check className="w-3 h-3 text-emerald-600" />
+                    <span>Copied UID</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3 h-3" />
+                    <span>Copy UID</span>
+                  </>
+                )}
+              </button>
+            </div>
           )}
         </div>
       </footer>

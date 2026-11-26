@@ -4,7 +4,7 @@ export type SubjectColorKey = 'cobalt' | 'emerald' | 'amber' | 'rose' | 'slate';
 export type SessionMode = 'pomodoro' | 'manual' | 'lecture';
 export type HabitCategory = 'focus' | 'practice' | 'reading' | 'revision';
 export type HabitUnit = 'minutes' | 'sessions' | 'pages';
-export type PurchaseStatus = 'active' | 'revoked';
+export type PurchaseStatus = 'pending' | 'active' | 'revoked';
 export type PaymentMethodType = 'upi' | 'bank' | 'gateway' | 'manual';
 
 export const ADMIN_BOOTSTRAP_EMAIL = 'preetverma.bbx@gmail.com';
@@ -40,6 +40,7 @@ export const VALIDATION_LIMITS = {
   paymentLinkUrlMax: 300,
   paymentInstructionsMax: 400,
   paymentReferenceMax: 120,
+  paymentScreenshotMax: 350000,
 } as const;
 
 export const BATCH_COVER_IMAGES = [
@@ -170,6 +171,7 @@ export interface BatchPurchase {
   paymentMethodId?: string;
   paymentMethodLabel?: string;
   paymentReference?: string;
+  paymentScreenshotUrl?: string;
   purchasedAt: Timestamp;
   updatedAt: Timestamp;
 }

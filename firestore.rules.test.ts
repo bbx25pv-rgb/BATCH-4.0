@@ -41,6 +41,14 @@ assert.ok(
   'Syllabus previews must require verified sign-in'
 );
 assert.ok(
+  rules.includes("data.status in ['pending', 'active', 'revoked']") &&
+    rules.includes("incoming().status == 'pending'") &&
+    rules.includes("data.paymentScreenshotUrl.size() <= 350000") &&
+    rules.includes("incoming().paymentReference.size() >= 4") &&
+    rules.includes("incoming().paymentScreenshotUrl.size() >= 30"),
+  'Paid student purchase submissions must require pending status, UTR, and payment screenshot until admin approval'
+);
+assert.ok(
   rules.includes('isValidPaymentMethod(incoming())') &&
     rules.includes('match /paymentMethods/{methodId}'),
   'Payment methods must require admin writes and verified active reads'

@@ -396,7 +396,7 @@
     },
     "BatchPurchase": {
       "title": "BatchPurchase",
-      "description": "Enrollment receipt granting a student access to a purchased batch's unlisted lecture videos.",
+      "description": "Enrollment and payment verification record governing student access to a batch's unlisted lecture videos.",
       "type": "object",
       "properties": {
         "userId": {
@@ -422,7 +422,7 @@
         },
         "status": {
           "type": "string",
-          "enum": ["active", "revoked"]
+          "enum": ["pending", "active", "revoked"]
         },
         "grantedBy": {
           "type": "string",
@@ -440,7 +440,13 @@
         },
         "paymentReference": {
           "type": "string",
-          "maxLength": 120
+          "maxLength": 120,
+          "description": "Student-submitted UTR / Transaction Reference Number for payment verification."
+        },
+        "paymentScreenshotUrl": {
+          "type": "string",
+          "maxLength": 350000,
+          "description": "Compressed base64 image data URL of the student's payment confirmation screenshot."
         },
         "purchasedAt": {
           "type": "string",

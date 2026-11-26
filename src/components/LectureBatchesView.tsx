@@ -12,11 +12,13 @@ import {
   Copy,
   ExternalLink,
   Globe,
+  Image as ImageIcon,
   Lock,
   Play,
   PlayCircle,
   QrCode,
   ShieldCheck,
+  Upload,
   X,
 } from 'lucide-react';
 import {
@@ -27,7 +29,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/src/lib/firebase';
 import { purchaseBatch } from '@/src/lib/studyService';
-import { formatInr, resolveAssetUrl } from '@/src/lib/utils';
+import { compressPaymentScreenshotDataUrl, formatInr, resolveAssetUrl } from '@/src/lib/utils';
 import { loadYouTubeIframeApi } from '@/src/lib/youtubeApi';
 import {
   Batch,
@@ -122,9 +124,12 @@ export function LectureBatchesView({
   const [checkoutBatch, setCheckoutBatch] = useState<Batch | null>(null);
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string>('');
   const [paymentReference, setPaymentReference] = useState('');
+  const [paymentScreenshotUrl, setPaymentScreenshotUrl] = useState('');
+  const [uploadingScreenshot, setUploadingScreenshot] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [purchasing, setPurchasing] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const [purchaseSuccess, setPurchaseSuccess] = useState<string | null>(null);
 
   const activePaymentMethods = useMemo(
     () => paymentMethods.filter((m) => m.isActive),
@@ -172,11 +177,40 @@ export function LectureBatchesView({
     [checkoutPaymentOptions, selectedPaymentMethodId]
   );
 
+  const purchaseByBatchId = useMemo(() => {
+    const map = new Map<string, BatchPurchase>();
+    purchases.forEach((p) => {
+      if (!userId || p.userId === userId) {
+        map.set(p.batchId, p);
+      }
+    });
+    return map;
+  }, [purchases, userId]);
+
+  const checkoutPurchase = useMemo(
+    () => (checkoutBatch ? purchaseByBatchId.get(checkoutBatch.id) ?? null : null),
+    [checkoutBatch, purchaseByBatchId]
+  );
+
+  function openCheckoutModal(batch: Batch) {
+    const existing = purchaseByBatchId.get(batch.id);
+    setPurchaseError(null);
+    setPurchaseSuccess(null);
+    setPaymentReference(existing?.paymentReference ?? '');
+    setPaymentScreenshotUrl(existing?.paymentScreenshotUrl ?? '');
+    setSelectedPaymentMethodId(existing?.paymentMethodId ?? '');
+    setCheckoutBatch(batch);
+  }
+
   useEffect(() => {
     if (!checkoutBatch) {
       setSelectedPaymentMethodId('');
       setPaymentReference('');
+      setPaymentScreenshotUrl('');
+      setUploadingScreenshot(false);
       setCopiedField(null);
+      setPurchaseError(null);
+      setPurchaseSuccess(null);
       return;
     }
     if (
@@ -214,11 +248,19 @@ export function LectureBatchesView({
 
   const activePurchasedBatchIds = useMemo(() => {
     const set = new Set<string>();
-    purchases.forEach((p) => {
-      if (p.status === 'active') set.add(p.batchId);
+    purchaseByBatchId.forEach((p, batchId) => {
+      if (p.status === 'active') set.add(batchId);
     });
     return set;
-  }, [purchases]);
+  }, [purchaseByBatchId]);
+
+  const pendingPurchasedBatchIds = useMemo(() => {
+    const set = new Set<string>();
+    purchaseByBatchId.forEach((p, batchId) => {
+      if (p.status === 'pending') set.add(batchId);
+    });
+    return set;
+  }, [purchaseByBatchId]);
 
   const effectiveFilter = userId ? catalogFilter : 'all';
 
@@ -236,6 +278,11 @@ export function LectureBatchesView({
     if (!selectedBatch || !userId) return false;
     return isAdmin || activePurchasedBatchIds.has(selectedBatch.id);
   }, [selectedBatch, userId, isAdmin, activePurchasedBatchIds]);
+
+  const selectedBatchPurchase = useMemo(
+    () => (selectedBatch ? purchaseByBatchId.get(selectedBatch.id) ?? null : null),
+    [selectedBatch, purchaseByBatchId]
+  );
 
   // Signed-out users can only browse the batch/course catalog, never lectures inside
   useEffect(() => {
@@ -257,10 +304,15 @@ export function LectureBatchesView({
     if (isAdmin || activePurchasedBatchIds.has(targetBatch.id)) {
       setSelectedBatchId(targetBatch.id);
     } else {
+      const existing = purchaseByBatchId.get(targetBatch.id);
       setPurchaseError(null);
+      setPurchaseSuccess(null);
+      setPaymentReference(existing?.paymentReference ?? '');
+      setPaymentScreenshotUrl(existing?.paymentScreenshotUrl ?? '');
+      setSelectedPaymentMethodId(existing?.paymentMethodId ?? '');
       setCheckoutBatch(targetBatch);
     }
-  }, [userId, pendingEnrollBatchId, batches, isAdmin, activePurchasedBatchIds, onClearPendingEnroll]);
+  }, [userId, pendingEnrollBatchId, batches, isAdmin, activePurchasedBatchIds, purchaseByBatchId, onClearPendingEnroll]);
 
   useEffect(() => {
     if (userId && canAccessSelectedBatch) {
@@ -363,8 +415,7 @@ export function LectureBatchesView({
         return;
       }
       if (selectedBatch) {
-        setPurchaseError(null);
-        setCheckoutBatch(selectedBatch);
+        openCheckoutModal(selectedBatch);
       }
       return;
     }
@@ -373,33 +424,84 @@ export function LectureBatchesView({
     setIsPlayerCardOpen(true);
   }
 
+  async function handlePaymentScreenshotChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPurchaseError(null);
+    setUploadingScreenshot(true);
+    try {
+      const dataUrl = await compressPaymentScreenshotDataUrl(file);
+      setPaymentScreenshotUrl(dataUrl);
+    } catch (err) {
+      setPurchaseError(
+        err instanceof Error ? err.message : 'Unable to process the selected payment screenshot.'
+      );
+    } finally {
+      setUploadingScreenshot(false);
+    }
+  }
+
   async function handleConfirmPurchase() {
     if (!userId || !checkoutBatch) return;
     setPurchaseError(null);
+    setPurchaseSuccess(null);
+
+    const trimmedRef = paymentReference.trim();
+    if (checkoutBatch.priceUsd > 0) {
+      if (trimmedRef.length < 4) {
+        setPurchaseError('Please enter your UTR / Transaction Number (minimum 4 characters).');
+        return;
+      }
+      if (paymentScreenshotUrl.length < 30) {
+        setPurchaseError('Please upload a screenshot of your payment before confirming.');
+        return;
+      }
+    }
+
     setPurchasing(true);
     try {
       const paymentDetails =
-        checkoutBatch.priceUsd > 0 && selectedPaymentMethod
+        checkoutBatch.priceUsd > 0
           ? {
-              paymentMethodId:
-                selectedPaymentMethod.id === '__course_qr__'
+              paymentMethodId: selectedPaymentMethod
+                ? selectedPaymentMethod.id === '__course_qr__'
                   ? `course_qr_${checkoutBatch.id}`
-                  : selectedPaymentMethod.id,
-              paymentMethodLabel:
-                selectedPaymentMethod.id === '__course_qr__'
+                  : selectedPaymentMethod.id
+                : 'direct_upi',
+              paymentMethodLabel: selectedPaymentMethod
+                ? selectedPaymentMethod.id === '__course_qr__'
                   ? `${checkoutBatch.title} QR`
-                  : selectedPaymentMethod.label,
-              paymentReference,
+                  : selectedPaymentMethod.label
+                : 'Manual Payment Proof',
+              paymentReference: trimmedRef,
+              paymentScreenshotUrl,
+            }
+          : trimmedRef || paymentScreenshotUrl
+          ? {
+              paymentReference: trimmedRef,
+              paymentScreenshotUrl,
             }
           : undefined;
-      await purchaseBatch(userId, checkoutBatch, paymentDetails);
+      const outcome = await purchaseBatch(userId, checkoutBatch, paymentDetails);
       const enrolled = checkoutBatch;
-      setCheckoutBatch(null);
-      setPaymentReference('');
-      setSelectedBatchId(enrolled.id);
+      if (outcome === 'already_active') {
+        setCheckoutBatch(null);
+        setPaymentReference('');
+        setPaymentScreenshotUrl('');
+        setSelectedBatchId(enrolled.id);
+      } else if (outcome === 'updated_pending') {
+        setPurchaseSuccess(
+          'Updated your UTR number and payment screenshot. Waiting for administrator verification and approval.'
+        );
+      } else {
+        setPurchaseSuccess(
+          'Payment proof submitted! An administrator will verify your UTR and payment screenshot, then approve your access to the lectures.'
+        );
+      }
     } catch (err) {
       setPurchaseError(
-        err instanceof Error ? err.message : 'Unable to complete batch enrollment.'
+        err instanceof Error ? err.message : 'Unable to submit payment verification.'
       );
     } finally {
       setPurchasing(false);
@@ -433,30 +535,49 @@ export function LectureBatchesView({
                   : 'Enrolled Batch Access'}
               </span>
             </div>
+          ) : selectedBatchPurchase?.status === 'pending' ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-1.5 text-xs text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg font-medium whitespace-nowrap shrink-0">
+                <Clock className="w-3.5 h-3.5 text-amber-700" />
+                <span>Payment Submitted · Awaiting Admin Approval</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => openCheckoutModal(selectedBatch)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                <span>View / Update Payment Proof</span>
+              </button>
+            </div>
           ) : (
             <div className="flex flex-wrap items-center gap-3">
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 font-medium whitespace-nowrap shrink-0">
                 <Lock className="w-3.5 h-3.5 text-slate-500" />
-                <span>Private Lectures · Enrollment Required</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!userId) {
-                    onRequireSignIn();
-                    return;
-                  }
-                  setPurchaseError(null);
-                  setCheckoutBatch(selectedBatch);
-                }}
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0"
-              >
                 <span>
-                  {userId
-                    ? `Purchase Batch · ${formatInr(selectedBatch.priceUsd)}`
-                    : `Sign in to Enroll · ${formatInr(selectedBatch.priceUsd)}`}
+                  {selectedBatchPurchase?.status === 'revoked'
+                    ? 'Access Revoked · Contact Admin'
+                    : 'Private Lectures · Enrollment Required'}
                 </span>
-              </button>
+              </span>
+              {selectedBatchPurchase?.status !== 'revoked' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!userId) {
+                      onRequireSignIn();
+                      return;
+                    }
+                    openCheckoutModal(selectedBatch);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0"
+                >
+                  <span>
+                    {userId
+                      ? `Purchase Batch · ${formatInr(selectedBatch.priceUsd)}`
+                      : `Sign in to Enroll · ${formatInr(selectedBatch.priceUsd)}`}
+                  </span>
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -610,6 +731,11 @@ export function LectureBatchesView({
                       <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900 group-hover:text-blue-700 transition-colors whitespace-nowrap shrink-0">
                         <PlayCircle className="w-4 h-4" />
                         <span>Watch Lecture</span>
+                      </span>
+                    ) : selectedBatchPurchase?.status === 'pending' ? (
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-amber-700 whitespace-nowrap shrink-0">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Awaiting Approval</span>
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700 group-hover:text-blue-700 transition-colors whitespace-nowrap shrink-0">
@@ -822,7 +948,10 @@ export function LectureBatchesView({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {visibleBatches.map((batch) => {
+            const batchPurchase = purchaseByBatchId.get(batch.id) ?? null;
             const isOwned = activePurchasedBatchIds.has(batch.id);
+            const isPending = pendingPurchasedBatchIds.has(batch.id);
+            const isRevoked = batchPurchase?.status === 'revoked';
             const canOpen = userId !== null && (isOwned || isAdmin);
 
             const handleDirectEnroll = () => {
@@ -830,8 +959,7 @@ export function LectureBatchesView({
                 onRequireSignIn(batch.id);
                 return;
               }
-              setPurchaseError(null);
-              setCheckoutBatch(batch);
+              openCheckoutModal(batch);
             };
 
             return (
@@ -886,6 +1014,16 @@ export function LectureBatchesView({
                         <ShieldCheck className="w-4 h-4 text-blue-600" />
                         <span>Admin Access</span>
                       </span>
+                    ) : isPending ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Pending Verification</span>
+                      </span>
+                    ) : isRevoked ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-rose-700">
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>Access Revoked</span>
+                      </span>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600">
                         <Lock className="w-3.5 h-3.5 text-slate-400" />
@@ -908,6 +1046,19 @@ export function LectureBatchesView({
                       <PlayCircle className="w-3.5 h-3.5" />
                       <span>Open Lectures</span>
                     </button>
+                  ) : isPending ? (
+                    <button
+                      type="button"
+                      onClick={handleDirectEnroll}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-amber-50 border border-amber-300 hover:bg-amber-100 text-amber-900 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Awaiting Approval</span>
+                    </button>
+                  ) : isRevoked ? (
+                    <span className="px-3 py-2 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium rounded-lg whitespace-nowrap shrink-0">
+                      Contact Admin
+                    </span>
                   ) : (
                     <button
                       type="button"
@@ -968,158 +1119,192 @@ export function LectureBatchesView({
                     {formatInr(checkoutBatch.priceUsd)}
                   </span>
                 </div>
+                {userId && (
+                  <div className="flex items-center justify-between gap-2 pt-2 text-xs">
+                    <span className="text-slate-500">Student User UID</span>
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyValue('uid', userId)}
+                      className="inline-flex items-center gap-1.5 font-mono text-slate-800 hover:text-blue-700 max-w-[220px]"
+                      title="Copy your Student User UID"
+                    >
+                      <span className="truncate">{userId}</span>
+                      {copiedField === 'uid' ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {checkoutBatch.priceUsd > 0 && checkoutPaymentOptions.length > 0 && (
+              {checkoutBatch.priceUsd > 0 && (
                 <div className="pt-3 border-t border-slate-100 space-y-3">
-                  <p className="text-xs font-semibold text-slate-900">
-                    {checkoutPaymentOptions.length > 1
-                      ? 'Select Payment Method'
-                      : selectedPaymentMethod?.id === '__course_qr__'
-                      ? `Scan QR to Pay for ${checkoutBatch.title}`
-                      : 'Payment Details'}
-                  </p>
-                  {checkoutPaymentOptions.length > 1 && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {checkoutPaymentOptions.map((method) => {
-                        const active = selectedPaymentMethod?.id === method.id;
-                        return (
-                          <button
-                            key={method.id}
-                            type="button"
-                            onClick={() => setSelectedPaymentMethodId(method.id)}
-                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-xs font-medium transition-colors ${
-                              active
-                                ? 'border-blue-600 bg-blue-50 text-blue-900'
-                                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            {method.type === 'upi' ? (
-                              <QrCode className="w-3.5 h-3.5 shrink-0 text-blue-600" />
-                            ) : method.type === 'bank' ? (
-                              <Building2 className="w-3.5 h-3.5 shrink-0 text-blue-600" />
-                            ) : method.type === 'gateway' ? (
-                              <Globe className="w-3.5 h-3.5 shrink-0 text-blue-600" />
-                            ) : (
-                              <Banknote className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+                  {checkoutPaymentOptions.length > 0 && (
+                    <>
+                      <p className="text-xs font-semibold text-slate-900">
+                        {checkoutPaymentOptions.length > 1
+                          ? 'Select Payment Method'
+                          : selectedPaymentMethod?.id === '__course_qr__'
+                          ? `Scan QR to Pay for ${checkoutBatch.title}`
+                          : 'Payment Details'}
+                      </p>
+                      {checkoutPaymentOptions.length > 1 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {checkoutPaymentOptions.map((method) => {
+                            const active = selectedPaymentMethod?.id === method.id;
+                            return (
+                              <button
+                                key={method.id}
+                                type="button"
+                                onClick={() => setSelectedPaymentMethodId(method.id)}
+                                className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-xs font-medium transition-colors ${
+                                  active
+                                    ? 'border-blue-600 bg-blue-50 text-blue-900'
+                                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                                }`}
+                              >
+                                {method.type === 'upi' ? (
+                                  <QrCode className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+                                ) : method.type === 'bank' ? (
+                                  <Building2 className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+                                ) : method.type === 'gateway' ? (
+                                  <Globe className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+                                ) : (
+                                  <Banknote className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+                                )}
+                                <span className="truncate">{method.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {selectedPaymentMethod && (
+                        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2.5 text-xs">
+                          {selectedPaymentMethod.payeeName && (
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-slate-500">Payee</span>
+                              <span className="font-medium text-slate-900">
+                                {selectedPaymentMethod.payeeName}
+                              </span>
+                            </div>
+                          )}
+
+                          {selectedPaymentMethod.type === 'upi' && (
+                            <>
+                              {selectedPaymentMethod.upiId && (
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-slate-500">UPI ID</span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void handleCopyValue('upi', selectedPaymentMethod.upiId)
+                                    }
+                                    className="inline-flex items-center gap-1.5 font-mono text-slate-900 hover:text-blue-700"
+                                  >
+                                    <span>{selectedPaymentMethod.upiId}</span>
+                                    {copiedField === 'upi' ? (
+                                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="w-3.5 h-3.5 text-slate-400" />
+                                    )}
+                                  </button>
+                                </div>
+                              )}
+                              {selectedPaymentMethod.qrImageUrl && (
+                                <div className="pt-1 flex justify-center">
+                                  <img
+                                    src={selectedPaymentMethod.qrImageUrl}
+                                    alt={`${selectedPaymentMethod.label} QR code`}
+                                    className="w-40 h-40 object-contain bg-white border border-slate-200 rounded-lg p-1.5"
+                                  />
+                                </div>
+                              )}
+                            </>
+                          )}
+
+                          {selectedPaymentMethod.type === 'bank' && (
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-slate-500">Bank</span>
+                                <span className="font-medium text-slate-900">
+                                  {selectedPaymentMethod.bankName}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-slate-500">Account No.</span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void handleCopyValue(
+                                      'acc',
+                                      selectedPaymentMethod.accountNumber
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-1.5 font-mono text-slate-900 hover:text-blue-700"
+                                >
+                                  <span>{selectedPaymentMethod.accountNumber}</span>
+                                  {copiedField === 'acc' ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5 text-slate-400" />
+                                  )}
+                                </button>
+                              </div>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-slate-500">IFSC</span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void handleCopyValue('ifsc', selectedPaymentMethod.ifscCode)
+                                  }
+                                  className="inline-flex items-center gap-1.5 font-mono text-slate-900 hover:text-blue-700"
+                                >
+                                  <span>{selectedPaymentMethod.ifscCode}</span>
+                                  {copiedField === 'ifsc' ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5 text-slate-400" />
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {selectedPaymentMethod.type === 'gateway' &&
+                            selectedPaymentMethod.paymentLinkUrl && (
+                              <a
+                                href={selectedPaymentMethod.paymentLinkUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:border-blue-400 hover:text-blue-700 rounded-md font-medium text-slate-900 transition-colors"
+                              >
+                                <span>Open Payment Page</span>
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
                             )}
-                            <span className="truncate">{method.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+
+                          {selectedPaymentMethod.instructions && (
+                            <p className="text-[11px] text-slate-600 leading-relaxed pt-1 border-t border-slate-200/70">
+                              {selectedPaymentMethod.instructions}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
 
-                  {selectedPaymentMethod && (
-                    <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2.5 text-xs">
-                      {selectedPaymentMethod.payeeName && (
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-slate-500">Payee</span>
-                          <span className="font-medium text-slate-900">
-                            {selectedPaymentMethod.payeeName}
-                          </span>
-                        </div>
-                      )}
-
-                      {selectedPaymentMethod.type === 'upi' && (
-                        <>
-                          {selectedPaymentMethod.upiId && (
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-slate-500">UPI ID</span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void handleCopyValue('upi', selectedPaymentMethod.upiId)
-                                }
-                                className="inline-flex items-center gap-1.5 font-mono text-slate-900 hover:text-blue-700"
-                              >
-                                <span>{selectedPaymentMethod.upiId}</span>
-                                {copiedField === 'upi' ? (
-                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                                ) : (
-                                  <Copy className="w-3.5 h-3.5 text-slate-400" />
-                                )}
-                              </button>
-                            </div>
-                          )}
-                          {selectedPaymentMethod.qrImageUrl && (
-                            <div className="pt-1 flex justify-center">
-                              <img
-                                src={selectedPaymentMethod.qrImageUrl}
-                                alt={`${selectedPaymentMethod.label} QR code`}
-                                className="w-40 h-40 object-contain bg-white border border-slate-200 rounded-lg p-1.5"
-                              />
-                            </div>
-                          )}
-                        </>
-                      )}
-
-                      {selectedPaymentMethod.type === 'bank' && (
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-slate-500">Bank</span>
-                            <span className="font-medium text-slate-900">
-                              {selectedPaymentMethod.bankName}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-slate-500">Account No.</span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void handleCopyValue(
-                                  'acc',
-                                  selectedPaymentMethod.accountNumber
-                                )
-                              }
-                              className="inline-flex items-center gap-1.5 font-mono text-slate-900 hover:text-blue-700"
-                            >
-                              <span>{selectedPaymentMethod.accountNumber}</span>
-                              {copiedField === 'acc' ? (
-                                <Check className="w-3.5 h-3.5 text-emerald-600" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5 text-slate-400" />
-                              )}
-                            </button>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-slate-500">IFSC</span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void handleCopyValue('ifsc', selectedPaymentMethod.ifscCode)
-                              }
-                              className="inline-flex items-center gap-1.5 font-mono text-slate-900 hover:text-blue-700"
-                            >
-                              <span>{selectedPaymentMethod.ifscCode}</span>
-                              {copiedField === 'ifsc' ? (
-                                <Check className="w-3.5 h-3.5 text-emerald-600" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5 text-slate-400" />
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {selectedPaymentMethod.type === 'gateway' &&
-                        selectedPaymentMethod.paymentLinkUrl && (
-                          <a
-                            href={selectedPaymentMethod.paymentLinkUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:border-blue-400 hover:text-blue-700 rounded-md font-medium text-slate-900 transition-colors"
-                          >
-                            <span>Open Payment Page</span>
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
-                        )}
-
-                      {selectedPaymentMethod.instructions && (
-                        <p className="text-[11px] text-slate-600 leading-relaxed pt-1 border-t border-slate-200/70">
-                          {selectedPaymentMethod.instructions}
-                        </p>
-                      )}
+                  {checkoutPurchase?.status === 'pending' && (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-1 text-xs text-amber-950">
+                      <p className="font-semibold flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                        <span>Payment Submitted · Pending Admin Approval</span>
+                      </p>
+                      <p className="text-[11px] text-amber-900 leading-relaxed">
+                        Your UTR number and payment screenshot have been sent to the administrator. Lectures will unlock as soon as the admin approves your payment.
+                      </p>
                     </div>
                   )}
 
@@ -1128,25 +1313,115 @@ export function LectureBatchesView({
                       htmlFor="checkout-payment-ref"
                       className="block text-[11px] font-medium text-slate-700 mb-1"
                     >
-                      Transaction ID / UTR Reference (optional)
+                      UTR / Transaction Number <span className="text-rose-600">*</span>
                     </label>
                     <input
                       id="checkout-payment-ref"
                       type="text"
+                      required
+                      minLength={4}
                       maxLength={VALIDATION_LIMITS.paymentReferenceMax}
                       value={paymentReference}
                       onChange={(e) => setPaymentReference(e.target.value)}
-                      placeholder="e.g., UTR 432198765432 or Payment ID"
-                      className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-base sm:text-xs font-mono"
+                      placeholder="Enter 12-digit UTR / Transaction ID"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-base sm:text-xs font-mono text-slate-900"
                     />
                   </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="block text-[11px] font-medium text-slate-700">
+                        Payment Screenshot <span className="text-rose-600">*</span>
+                      </span>
+                      {paymentScreenshotUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setPaymentScreenshotUrl('')}
+                          className="text-[11px] text-rose-700 hover:underline"
+                        >
+                          Remove screenshot
+                        </button>
+                      )}
+                    </div>
+
+                    {paymentScreenshotUrl ? (
+                      <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                        <img
+                          src={paymentScreenshotUrl}
+                          alt="Uploaded payment screenshot preview"
+                          className="w-full max-h-48 object-contain rounded border border-slate-200 bg-white"
+                        />
+                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                          <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Screenshot attached</span>
+                          </span>
+                          <label className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-800 font-medium rounded cursor-pointer">
+                            <Upload className="w-3 h-3" />
+                            <span>{uploadingScreenshot ? 'Processing...' : 'Replace'}</span>
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              className="hidden"
+                              disabled={uploadingScreenshot}
+                              onChange={(e) => void handlePaymentScreenshotChange(e)}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    ) : (
+                      <label className="flex flex-col items-center justify-center gap-1.5 px-4 py-4 border border-dashed border-slate-300 hover:border-blue-500 bg-slate-50/70 hover:bg-blue-50/40 rounded-lg cursor-pointer transition-colors text-center">
+                        <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-blue-600">
+                          {uploadingScreenshot ? (
+                            <Clock className="w-4 h-4 animate-pulse" />
+                          ) : (
+                            <ImageIcon className="w-4 h-4" />
+                          )}
+                        </div>
+                        <span className="text-xs font-medium text-slate-800">
+                          {uploadingScreenshot
+                            ? 'Compressing screenshot...'
+                            : 'Upload Payment Screenshot'}
+                        </span>
+                        <span className="text-[11px] text-slate-500">
+                          PNG, JPG, or WebP showing amount & UTR number
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden"
+                          disabled={uploadingScreenshot}
+                          onChange={(e) => void handlePaymentScreenshotChange(e)}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {checkoutBatch.priceUsd === 0 && checkoutPurchase?.status === 'pending' && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-1 text-xs text-amber-950">
+                  <p className="font-semibold flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                    <span>Enrollment Request Pending Admin Approval</span>
+                  </p>
+                  <p className="text-[11px] text-amber-900 leading-relaxed">
+                    Your request has been sent to the administrator for approval.
+                  </p>
                 </div>
               )}
 
               <p className="text-xs text-slate-500 pt-1 flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 shrink-0" />
-                <span>Instant lifetime access to all batch lectures upon enrollment.</span>
+                <span>
+                  Lectures unlock automatically as soon as an admin verifies your UTR & screenshot and approves access.
+                </span>
               </p>
+              {purchaseSuccess && (
+                <p className="text-xs text-emerald-900 bg-emerald-50 border border-emerald-200 rounded p-2.5 leading-relaxed">
+                  {purchaseSuccess}
+                </p>
+              )}
               {purchaseError && (
                 <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded p-2.5">
                   {purchaseError}
@@ -1160,15 +1435,19 @@ export function LectureBatchesView({
                 onClick={() => setCheckoutBatch(null)}
                 className="px-4 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
               >
-                Cancel
+                {checkoutPurchase?.status === 'pending' ? 'Close' : 'Cancel'}
               </button>
               <button
                 type="button"
-                disabled={purchasing}
+                disabled={purchasing || uploadingScreenshot}
                 onClick={() => void handleConfirmPurchase()}
                 className="px-5 py-2 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
               >
-                {purchasing ? 'Enrolling...' : `Confirm Purchase · ${formatInr(checkoutBatch.priceUsd)}`}
+                {purchasing
+                  ? 'Submitting...'
+                  : checkoutPurchase?.status === 'pending'
+                  ? 'Update Payment Proof'
+                  : `Confirm Payment · ${formatInr(checkoutBatch.priceUsd)}`}
               </button>
             </div>
           </div>

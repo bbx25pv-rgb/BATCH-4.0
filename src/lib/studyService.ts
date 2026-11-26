@@ -739,21 +739,69 @@ export async function purchaseBatch(
     paymentMethodId?: string;
     paymentMethodLabel?: string;
     paymentReference?: string;
+    paymentScreenshotUrl?: string;
   }
-): Promise<void> {
+): Promise<'submitted_pending' | 'updated_pending' | 'already_active'> {
   const purchaseId = `${userId}_${batch.id}`;
   const path = `purchases/${purchaseId}`;
   const ref = doc(db, 'purchases', purchaseId);
+  const cleanMethodId = paymentDetails?.paymentMethodId
+    ? sanitizeString(paymentDetails.paymentMethodId, 128)
+    : '';
+  const cleanMethodLabel = paymentDetails?.paymentMethodLabel
+    ? sanitizeString(paymentDetails.paymentMethodLabel, VALIDATION_LIMITS.paymentLabelMax)
+    : '';
+  const cleanReference = paymentDetails?.paymentReference?.trim()
+    ? sanitizeString(paymentDetails.paymentReference, VALIDATION_LIMITS.paymentReferenceMax)
+    : '';
+  const cleanScreenshot = (paymentDetails?.paymentScreenshotUrl ?? '').trim();
+
+  if (cleanScreenshot) {
+    const validDataUrl = /^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(
+      cleanScreenshot
+    );
+    if (!validDataUrl || cleanScreenshot.length > VALIDATION_LIMITS.paymentScreenshotMax) {
+      throw new Error('Invalid or oversized payment screenshot. Please upload a valid image.');
+    }
+  }
+
   try {
     const existingSnap = await getDoc(ref);
     if (existingSnap.exists()) {
       const existingData = existingSnap.data();
       if (existingData?.status === 'active') {
-        return;
+        return 'already_active';
+      }
+      if (existingData?.status === 'pending') {
+        if (batch.priceUsd > 0) {
+          if (cleanReference.length < 4) {
+            throw new Error('Please enter your UTR / Transaction Number (at least 4 characters).');
+          }
+          if (cleanScreenshot.length < 30) {
+            throw new Error('Please upload a screenshot of your payment before submitting.');
+          }
+        }
+        await updateDoc(ref, {
+          paymentMethodId: cleanMethodId || existingData.paymentMethodId || '',
+          paymentMethodLabel: cleanMethodLabel || existingData.paymentMethodLabel || '',
+          paymentReference: cleanReference,
+          paymentScreenshotUrl: cleanScreenshot,
+          updatedAt: serverTimestamp(),
+        });
+        return 'updated_pending';
       }
       throw new Error(
         'Access to this batch was revoked by an administrator. Contact your instructor to restore access.'
       );
+    }
+
+    if (batch.priceUsd > 0) {
+      if (cleanReference.length < 4) {
+        throw new Error('Please enter your UTR / Transaction Number (at least 4 characters).');
+      }
+      if (cleanScreenshot.length < 30) {
+        throw new Error('Please upload a screenshot of your payment before confirming.');
+      }
     }
 
     const payload: Record<string, unknown> = {
@@ -761,46 +809,60 @@ export async function purchaseBatch(
       batchId: batch.id,
       batchTitle: sanitizeString(batch.title, VALIDATION_LIMITS.batchTitleMax),
       amountPaid: batch.priceUsd,
-      status: 'active',
+      status: 'pending',
       grantedBy: userId,
       purchasedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
 
-    if (paymentDetails?.paymentMethodId) {
-      payload.paymentMethodId = sanitizeString(paymentDetails.paymentMethodId, 128);
+    if (cleanMethodId) {
+      payload.paymentMethodId = cleanMethodId;
     }
-    if (paymentDetails?.paymentMethodLabel) {
-      payload.paymentMethodLabel = sanitizeString(
-        paymentDetails.paymentMethodLabel,
-        VALIDATION_LIMITS.paymentLabelMax
-      );
+    if (cleanMethodLabel) {
+      payload.paymentMethodLabel = cleanMethodLabel;
     }
-    if (paymentDetails?.paymentReference?.trim()) {
-      payload.paymentReference = sanitizeString(
-        paymentDetails.paymentReference,
-        VALIDATION_LIMITS.paymentReferenceMax
-      );
+    if (cleanReference) {
+      payload.paymentReference = cleanReference;
+    }
+    if (cleanScreenshot) {
+      payload.paymentScreenshotUrl = cleanScreenshot;
     }
 
     await setDoc(ref, payload);
+    return 'submitted_pending';
   } catch (error) {
-    if (error instanceof Error && error.message.includes('revoked by an administrator')) {
+    if (
+      error instanceof Error &&
+      (error.message.includes('revoked by an administrator') ||
+        error.message.includes('UTR') ||
+        error.message.includes('screenshot'))
+    ) {
       throw error;
     }
-    handleFirestoreError(error, OperationType.CREATE, path);
+    handleFirestoreError(error, OperationType.WRITE, path);
   }
 }
 
 export async function adminGrantBatchAccess(
   adminUid: string,
   studentUid: string,
-  batch: Batch
-): Promise<'granted' | 'restored' | 'already_active'> {
+  batch: Batch,
+  paymentReference?: string
+): Promise<'granted' | 'approved' | 'restored' | 'already_active'> {
   const cleanStudentUid = studentUid.trim();
-  if (!VALIDATION_LIMITS.idPattern.test(cleanStudentUid)) {
-    throw new Error('Student UID must contain only letters, numbers, underscores, or hyphens.');
+  if (
+    !cleanStudentUid ||
+    cleanStudentUid.length > 128 ||
+    !VALIDATION_LIMITS.idPattern.test(cleanStudentUid)
+  ) {
+    throw new Error(
+      'Student UID must be 1–128 characters and contain only letters, numbers, underscores, or hyphens.'
+    );
   }
+  const cleanReference = sanitizeString(
+    paymentReference || '',
+    VALIDATION_LIMITS.paymentReferenceMax
+  );
   const purchaseId = `${cleanStudentUid}_${batch.id}`;
   const path = `purchases/${purchaseId}`;
   const ref = doc(db, 'purchases', purchaseId);
@@ -811,6 +873,7 @@ export async function adminGrantBatchAccess(
       if (existingData?.status === 'active') {
         return 'already_active';
       }
+      const wasPending = existingData?.status === 'pending';
       await updateDoc(ref, {
         status: 'active',
         batchTitle: sanitizeString(batch.title, VALIDATION_LIMITS.batchTitleMax),
@@ -818,19 +881,25 @@ export async function adminGrantBatchAccess(
         grantedBy: adminUid,
         updatedAt: serverTimestamp(),
       });
-      return 'restored';
+      return wasPending ? 'approved' : 'restored';
     }
 
-    await setDoc(ref, {
+    const payload: Record<string, unknown> = {
       userId: cleanStudentUid,
       batchId: batch.id,
       batchTitle: sanitizeString(batch.title, VALIDATION_LIMITS.batchTitleMax),
       amountPaid: batch.priceUsd,
       status: 'active',
       grantedBy: adminUid,
+      paymentMethodLabel: 'Admin Enrollment',
       purchasedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-    });
+    };
+    if (cleanReference) {
+      payload.paymentReference = cleanReference;
+    }
+
+    await setDoc(ref, payload);
     return 'granted';
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
@@ -851,6 +920,15 @@ export async function adminTogglePurchaseStatus(
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function adminDeletePurchase(purchaseId: string): Promise<void> {
+  const path = `purchases/${purchaseId}`;
+  try {
+    await deleteDoc(doc(db, 'purchases', purchaseId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
 
