@@ -124,7 +124,10 @@ service cloud.firestore {
         data.instructor is string && data.instructor.size() >= 1 && data.instructor.size() <= 80 &&
         data.description is string && data.description.size() >= 1 && data.description.size() <= 600 &&
         data.priceUsd is number && data.priceUsd >= 0 && data.priceUsd <= 500000 &&
-        data.coverImage is string && data.coverImage.size() >= 1 && data.coverImage.size() <= 300 &&
+        data.coverImage is string &&
+        data.coverImage.size() >= 1 &&
+        data.coverImage.size() <= 150000 &&
+        data.coverImage.matches('^(https://[^\\s]+|/src/assets/[^\\s]+|data:image/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+)$') &&
         data.lectureCount is number && data.lectureCount >= 0 && data.lectureCount <= 500 &&
         data.isPublished is bool &&
         isValidId(data.createdBy) &&

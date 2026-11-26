@@ -867,22 +867,84 @@ export function AdminConsoleView({
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono tabular-nums"
               />
             </div>
-            <div>
-              <label htmlFor="b-cover" className="block text-xs font-medium text-slate-700 mb-1">
-                Cover Artwork
-              </label>
-              <select
-                id="b-cover"
-                value={coverImage}
-                onChange={(e) => setCoverImage(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-              >
-                {BATCH_COVER_IMAGES.map((img) => (
-                  <option key={img.path} value={img.path}>
-                    {img.label}
-                  </option>
-                ))}
-              </select>
+            <div className="md:col-span-3 space-y-2 pt-1">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label htmlFor="b-cover-url" className="block text-xs font-medium text-slate-700">
+                  Cover Artwork (Preset, Image URL, or Upload)
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    aria-label="Choose preset batch cover"
+                    value={
+                      BATCH_COVER_IMAGES.some((img) => img.path === coverImage)
+                        ? coverImage
+                        : ''
+                    }
+                    onChange={(e) => {
+                      if (e.target.value) setCoverImage(e.target.value);
+                    }}
+                    className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-md text-xs text-slate-700"
+                  >
+                    <option value="">Custom Image / URL</option>
+                    {BATCH_COVER_IMAGES.map((img) => (
+                      <option key={img.path} value={img.path}>
+                        Preset: {img.label}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-medium rounded-md cursor-pointer whitespace-nowrap">
+                    <Upload className="w-3 h-3" />
+                    <span>Upload Image</span>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        void handleThumbnailFileUpload(file, setCoverImage);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {!BATCH_COVER_IMAGES.some((img) => img.path === coverImage) && (
+                    <button
+                      type="button"
+                      onClick={() => setCoverImage(BATCH_COVER_IMAGES[0].path)}
+                      className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-rose-700 whitespace-nowrap"
+                    >
+                      <X className="w-3 h-3" />
+                      <span>Reset Preset</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1">
+                  <ImageIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    id="b-cover-url"
+                    type="text"
+                    required
+                    value={
+                      coverImage.startsWith('data:image/')
+                        ? 'Uploaded custom cover image'
+                        : coverImage
+                    }
+                    readOnly={coverImage.startsWith('data:image/')}
+                    onChange={(e) => setCoverImage(e.target.value)}
+                    placeholder="https://... image URL or upload a 16:9 image"
+                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400"
+                  />
+                </div>
+                {coverImage && (
+                  <img
+                    src={resolveAssetUrl(coverImage)}
+                    alt="Batch cover preview"
+                    referrerPolicy="no-referrer"
+                    className="w-20 aspect-video rounded border border-slate-200 object-cover shrink-0 bg-slate-100"
+                  />
+                )}
+              </div>
             </div>
           </div>
 
@@ -1688,23 +1750,90 @@ export function AdminConsoleView({
                             </div>
                             <div>
                               <label
-                                htmlFor={`edit-b-cover-${b.id}`}
+                                htmlFor={`edit-b-cover-preset-${b.id}`}
                                 className="block text-[11px] font-medium text-slate-700 mb-1"
                               >
-                                Cover Artwork
+                                Cover Preset
                               </label>
                               <select
-                                id={`edit-b-cover-${b.id}`}
-                                value={editBatchCover}
-                                onChange={(e) => setEditBatchCover(e.target.value)}
+                                id={`edit-b-cover-preset-${b.id}`}
+                                value={
+                                  BATCH_COVER_IMAGES.some((img) => img.path === editBatchCover)
+                                    ? editBatchCover
+                                    : ''
+                                }
+                                onChange={(e) => {
+                                  if (e.target.value) setEditBatchCover(e.target.value);
+                                }}
                                 className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
                               >
+                                <option value="">Custom Image / URL</option>
                                 {BATCH_COVER_IMAGES.map((img) => (
                                   <option key={img.path} value={img.path}>
                                     {img.label}
                                   </option>
                                 ))}
                               </select>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <label
+                                htmlFor={`edit-b-cover-url-${b.id}`}
+                                className="block text-[11px] font-medium text-slate-700"
+                              >
+                                Cover Image URL or Upload
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <label className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-800 text-[11px] font-medium rounded cursor-pointer">
+                                  <Upload className="w-3 h-3" />
+                                  <span>Upload Image</span>
+                                  <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      void handleThumbnailFileUpload(file, setEditBatchCover);
+                                      e.target.value = '';
+                                    }}
+                                  />
+                                </label>
+                                {!BATCH_COVER_IMAGES.some((img) => img.path === editBatchCover) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditBatchCover(BATCH_COVER_IMAGES[0].path)}
+                                    className="text-[11px] text-slate-500 hover:text-rose-700"
+                                  >
+                                    Reset Preset
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                              <input
+                                id={`edit-b-cover-url-${b.id}`}
+                                type="text"
+                                required
+                                value={
+                                  editBatchCover.startsWith('data:image/')
+                                    ? 'Uploaded custom cover image'
+                                    : editBatchCover
+                                }
+                                readOnly={editBatchCover.startsWith('data:image/')}
+                                onChange={(e) => setEditBatchCover(e.target.value)}
+                                placeholder="https://... or upload 16:9 image"
+                                className="flex-1 px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                              />
+                              {editBatchCover && (
+                                <img
+                                  src={resolveAssetUrl(editBatchCover)}
+                                  alt="Edited batch cover preview"
+                                  referrerPolicy="no-referrer"
+                                  className="w-16 aspect-video rounded border border-slate-200 object-cover shrink-0 bg-slate-100"
+                                />
+                              )}
                             </div>
                           </div>
 

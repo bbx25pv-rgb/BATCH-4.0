@@ -25,7 +25,7 @@ export const VALIDATION_LIMITS = {
   subjectTagMax: 40,
   instructorMax: 80,
   batchDescriptionMax: 600,
-  coverImageMax: 300,
+  coverImageMax: 150000,
   lectureDocTitleMax: 140,
   moduleNameMax: 80,
   youtubeUrlMax: 300,

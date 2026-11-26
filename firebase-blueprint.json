@@ -244,7 +244,7 @@
         "coverImage": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 300
+          "maxLength": 150000
         },
         "lectureCount": {
           "type": "number"

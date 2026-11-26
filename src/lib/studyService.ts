@@ -388,6 +388,11 @@ export async function createBatch(
     isPublished: boolean;
   }
 ): Promise<string> {
+  const cleanCover = input.coverImage.trim();
+  if (!cleanCover || !isSafeThumbnailUrl(cleanCover)) {
+    throw new Error('Cover artwork must be a studio preset, an https:// image URL, or an uploaded image.');
+  }
+
   const id = makeDocId('batch');
   const path = `batches/${id}`;
   const rawPrice = Number(input.priceUsd);
@@ -399,7 +404,7 @@ export async function createBatch(
       instructor: sanitizeString(input.instructor, VALIDATION_LIMITS.instructorMax),
       description: sanitizeString(input.description, VALIDATION_LIMITS.batchDescriptionMax),
       priceUsd: safePrice,
-      coverImage: sanitizeString(input.coverImage, VALIDATION_LIMITS.coverImageMax),
+      coverImage: sanitizeString(cleanCover, VALIDATION_LIMITS.coverImageMax),
       lectureCount: 0,
       isPublished: input.isPublished,
       createdBy: adminUid,
@@ -424,6 +429,11 @@ export async function updateBatch(
     isPublished: boolean;
   }
 ): Promise<void> {
+  const cleanCover = input.coverImage.trim();
+  if (!cleanCover || !isSafeThumbnailUrl(cleanCover)) {
+    throw new Error('Cover artwork must be a studio preset, an https:// image URL, or an uploaded image.');
+  }
+
   const path = `batches/${batchId}`;
   const rawPrice = Number(input.priceUsd);
   const safePrice = Number.isFinite(rawPrice) ? Math.min(500000, Math.max(0, rawPrice)) : 0;
@@ -434,7 +444,7 @@ export async function updateBatch(
       instructor: sanitizeString(input.instructor, VALIDATION_LIMITS.instructorMax),
       description: sanitizeString(input.description, VALIDATION_LIMITS.batchDescriptionMax),
       priceUsd: safePrice,
-      coverImage: sanitizeString(input.coverImage, VALIDATION_LIMITS.coverImageMax),
+      coverImage: sanitizeString(cleanCover, VALIDATION_LIMITS.coverImageMax),
       isPublished: input.isPublished,
       updatedAt: serverTimestamp(),
     });
