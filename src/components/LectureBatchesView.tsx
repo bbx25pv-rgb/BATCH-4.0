@@ -95,10 +95,15 @@ export function LectureBatchesView({
   loadingBatches,
 }: LectureBatchesViewProps) {
   const [catalogFilter, setCatalogFilter] = useState<'all' | 'purchased' | 'available'>('all');
-  const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null);
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [checkoutBatch, setCheckoutBatch] = useState<Batch | null>(null);
   const [purchasing, setPurchasing] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
+
+  const selectedBatch = useMemo(
+    () => (selectedBatchId ? batches.find((b) => b.id === selectedBatchId) ?? null : null),
+    [batches, selectedBatchId]
+  );
 
   // Lectures loaded ONLY for an active purchased batch (or admin)
   const [lectures, setLectures] = useState<Lecture[]>([]);
@@ -232,7 +237,7 @@ export function LectureBatchesView({
       await purchaseBatch(userId, checkoutBatch);
       const enrolled = checkoutBatch;
       setCheckoutBatch(null);
-      setSelectedBatch(enrolled);
+      setSelectedBatchId(enrolled.id);
     } catch (err) {
       setPurchaseError(
         err instanceof Error ? err.message : 'Unable to complete batch enrollment.'
@@ -251,7 +256,7 @@ export function LectureBatchesView({
             type="button"
             onClick={() => {
               setIsPlayerCardOpen(false);
-              setSelectedBatch(null);
+              setSelectedBatchId(null);
               setPlayTrigger(0);
             }}
             className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors whitespace-nowrap shrink-0"
@@ -605,7 +610,7 @@ export function LectureBatchesView({
 
             const handleBatchAction = () => {
               if (canOpen) {
-                setSelectedBatch(batch);
+                setSelectedBatchId(batch.id);
                 return;
               }
               if (!userId) {
@@ -676,7 +681,7 @@ export function LectureBatchesView({
                   {canOpen ? (
                     <button
                       type="button"
-                      onClick={() => setSelectedBatch(batch)}
+                      onClick={() => setSelectedBatchId(batch.id)}
                       className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0"
                     >
                       <PlayCircle className="w-3.5 h-3.5" />

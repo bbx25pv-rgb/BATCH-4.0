@@ -571,8 +571,20 @@ export async function deleteUnlistedLecture(batchId: string, lectureId: string):
 export async function purchaseBatch(userId: string, batch: Batch): Promise<void> {
   const purchaseId = `${userId}_${batch.id}`;
   const path = `purchases/${purchaseId}`;
+  const ref = doc(db, 'purchases', purchaseId);
   try {
-    await setDoc(doc(db, 'purchases', purchaseId), {
+    const existingSnap = await getDoc(ref);
+    if (existingSnap.exists()) {
+      const existingData = existingSnap.data();
+      if (existingData?.status === 'active') {
+        return;
+      }
+      throw new Error(
+        'Access to this batch was revoked by an administrator. Contact your instructor to restore access.'
+      );
+    }
+
+    await setDoc(ref, {
       userId,
       batchId: batch.id,
       batchTitle: sanitizeString(batch.title, VALIDATION_LIMITS.batchTitleMax),
@@ -583,6 +595,9 @@ export async function purchaseBatch(userId: string, batch: Batch): Promise<void>
       updatedAt: serverTimestamp(),
     });
   } catch (error) {
+    if (error instanceof Error && error.message.includes('revoked by an administrator')) {
+      throw error;
+    }
     handleFirestoreError(error, OperationType.CREATE, path);
   }
 }
@@ -591,15 +606,32 @@ export async function adminGrantBatchAccess(
   adminUid: string,
   studentUid: string,
   batch: Batch
-): Promise<void> {
+): Promise<'granted' | 'restored' | 'already_active'> {
   const cleanStudentUid = studentUid.trim();
   if (!VALIDATION_LIMITS.idPattern.test(cleanStudentUid)) {
     throw new Error('Student UID must contain only letters, numbers, underscores, or hyphens.');
   }
   const purchaseId = `${cleanStudentUid}_${batch.id}`;
   const path = `purchases/${purchaseId}`;
+  const ref = doc(db, 'purchases', purchaseId);
   try {
-    await setDoc(doc(db, 'purchases', purchaseId), {
+    const existingSnap = await getDoc(ref);
+    if (existingSnap.exists()) {
+      const existingData = existingSnap.data();
+      if (existingData?.status === 'active') {
+        return 'already_active';
+      }
+      await updateDoc(ref, {
+        status: 'active',
+        batchTitle: sanitizeString(batch.title, VALIDATION_LIMITS.batchTitleMax),
+        amountPaid: batch.priceUsd,
+        grantedBy: adminUid,
+        updatedAt: serverTimestamp(),
+      });
+      return 'restored';
+    }
+
+    await setDoc(ref, {
       userId: cleanStudentUid,
       batchId: batch.id,
       batchTitle: sanitizeString(batch.title, VALIDATION_LIMITS.batchTitleMax),
@@ -609,6 +641,7 @@ export async function adminGrantBatchAccess(
       purchasedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    return 'granted';
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }

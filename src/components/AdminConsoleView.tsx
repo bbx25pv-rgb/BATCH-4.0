@@ -321,6 +321,16 @@ export function AdminConsoleView({
     }
   }
 
+  const matchingStudentPurchase = useMemo(() => {
+    const cleanUid = grantUid.trim();
+    if (!cleanUid || !grantBatchId) return null;
+    return (
+      purchases.find(
+        (p) => p.userId === cleanUid && p.batchId === grantBatchId
+      ) ?? null
+    );
+  }, [purchases, grantUid, grantBatchId]);
+
   async function handleGrantStudentAccess(e: React.FormEvent) {
     e.preventDefault();
     const targetBatch = batches.find((b) => b.id === grantBatchId);
@@ -328,18 +338,43 @@ export function AdminConsoleView({
       setErrorMsg('Choose a batch to grant access to.');
       return;
     }
+    const cleanUid = grantUid.trim();
     setErrorMsg(null);
     setFeedback(null);
     setGranting(true);
     try {
       if (!(await ensureVerifiedAdminSession())) return;
-      await adminGrantBatchAccess(adminUid, grantUid, targetBatch);
-      setGrantUid('');
-      setFeedback(`Granted active access to ${targetBatch.title}.`);
+      const outcome = await adminGrantBatchAccess(adminUid, cleanUid, targetBatch);
+      if (outcome === 'already_active') {
+        setFeedback(`Student ${cleanUid} already has active access to ${targetBatch.title}.`);
+      } else if (outcome === 'restored') {
+        setGrantUid('');
+        setFeedback(`Restored active access to ${targetBatch.title} for ${cleanUid}.`);
+      } else {
+        setGrantUid('');
+        setFeedback(`Granted active access to ${targetBatch.title}.`);
+      }
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Unable to grant access.');
     } finally {
       setGranting(false);
+    }
+  }
+
+  async function handleTogglePurchaseStatus(purchase: BatchPurchase) {
+    setErrorMsg(null);
+    setFeedback(null);
+    const nextStatus = purchase.status === 'active' ? 'revoked' : 'active';
+    try {
+      if (!(await ensureVerifiedAdminSession())) return;
+      await adminTogglePurchaseStatus(adminUid, purchase.id, nextStatus);
+      setFeedback(
+        nextStatus === 'active'
+          ? `Restored access to ${purchase.batchTitle} for ${purchase.userId}.`
+          : `Revoked access to ${purchase.batchTitle} for ${purchase.userId}.`
+      );
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Unable to update student batch access.');
     }
   }
 
@@ -1061,12 +1096,29 @@ export function AdminConsoleView({
                 </select>
                 <button
                   type="submit"
-                  disabled={granting || batches.length === 0}
+                  disabled={
+                    granting ||
+                    batches.length === 0 ||
+                    matchingStudentPurchase?.status === 'active'
+                  }
                   className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg disabled:opacity-50 whitespace-nowrap shrink-0"
                 >
-                  {granting ? 'Granting...' : 'Grant Access'}
+                  {granting
+                    ? 'Saving...'
+                    : matchingStudentPurchase?.status === 'active'
+                    ? 'Already Active'
+                    : matchingStudentPurchase?.status === 'revoked'
+                    ? 'Restore Access'
+                    : 'Grant Access'}
                 </button>
               </div>
+              {matchingStudentPurchase && (
+                <p className="text-[11px] text-slate-600">
+                  {matchingStudentPurchase.status === 'active'
+                    ? 'This student already has active access to the selected batch.'
+                    : 'This student previously had access revoked. Click Restore Access to re-enable.'}
+                </p>
+              )}
             </form>
 
             <div className="pt-3 border-t border-slate-100 divide-y divide-slate-100 max-h-64 overflow-y-auto">
@@ -1087,13 +1139,7 @@ export function AdminConsoleView({
                     </div>
                     <button
                       type="button"
-                      onClick={() =>
-                        void adminTogglePurchaseStatus(
-                          adminUid,
-                          p.id,
-                          p.status === 'active' ? 'revoked' : 'active'
-                        )
-                      }
+                      onClick={() => void handleTogglePurchaseStatus(p)}
                       className={`px-2.5 py-1 text-xs font-medium rounded border shrink-0 ${
                         p.status === 'active'
                           ? 'border-rose-200 text-rose-700 hover:bg-rose-50'
