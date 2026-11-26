@@ -466,7 +466,7 @@ export function AdminConsoleView({
   }
 
   return (
-    <section className="max-w-[1280px] mx-auto px-6 py-8 space-y-8">
+    <section className="max-w-[1280px] mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <div className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 mb-1">
@@ -665,7 +665,7 @@ export function AdminConsoleView({
               aria-label="Select target batch"
               value={selectedBatchId}
               onChange={(e) => setSelectedBatchId(e.target.value)}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-900 max-w-xs"
+              className="w-full sm:w-auto sm:max-w-xs min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-base sm:text-xs font-medium text-slate-900"
             >
               {batches.length === 0 ? (
                 <option value="">No batches created</option>
@@ -950,7 +950,7 @@ export function AdminConsoleView({
                       </div>
 
                       {isEditingThumb && (
-                        <div className="pl-23 flex flex-wrap items-center gap-2">
+                        <div className="pl-0 sm:pl-23 flex flex-wrap items-center gap-2">
                           <input
                             type="text"
                             aria-label="Lecture thumbnail URL"
@@ -1087,15 +1087,15 @@ export function AdminConsoleView({
                   value={grantUid}
                   onChange={(e) => setGrantUid(e.target.value)}
                   placeholder="Firebase Auth UID"
-                  className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-mono"
+                  className="w-full px-3 py-2 sm:py-1.5 border border-slate-200 rounded-lg text-base sm:text-xs font-mono"
                 />
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <select
                   aria-label="Batch to grant"
                   value={grantBatchId}
                   onChange={(e) => setGrantBatchId(e.target.value)}
-                  className="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-xs"
+                  className="w-full sm:flex-1 min-w-0 px-3 py-2 sm:py-1.5 border border-slate-200 rounded-lg text-base sm:text-xs"
                 >
                   {batches.map((b) => (
                     <option key={b.id} value={b.id}>
@@ -1110,7 +1110,7 @@ export function AdminConsoleView({
                     batches.length === 0 ||
                     matchingStudentPurchase?.status === 'active'
                   }
-                  className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg disabled:opacity-50 whitespace-nowrap shrink-0"
+                  className="min-h-[38px] sm:min-h-0 px-3.5 py-2 sm:py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg disabled:opacity-50 whitespace-nowrap shrink-0"
                 >
                   {granting
                     ? 'Saving...'

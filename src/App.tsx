@@ -302,7 +302,7 @@ function CadenceApp() {
   );
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-[#0F172A]">
+    <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-[#0F172A] overflow-x-clip">
       <Navbar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
@@ -314,7 +314,7 @@ function CadenceApp() {
 
       {user && !isVerifiedUser && (
         <div className="bg-amber-50 border-b border-amber-200">
-          <div className="max-w-[1280px] mx-auto px-6 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs text-amber-950">
+          <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs text-amber-950">
             <div className="flex items-center gap-2">
               <MailCheck className="w-4 h-4 text-amber-700 shrink-0" />
               <span>
@@ -481,10 +481,10 @@ function CadenceApp() {
       />
 
       <footer className="border-t border-slate-200 bg-white mt-12">
-        <div className="max-w-[1280px] mx-auto px-6 py-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-500">
+        <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-500">
           <span>Cadence Study · Academic Focus & Cohort Lectures</span>
           {user && (
-            <span className="font-mono truncate max-w-md">
+            <span className="font-mono truncate max-w-full sm:max-w-md">
               Signed in as {user.email || user.phoneNumber || 'User'} · UID: {user.uid}
             </span>
           )}

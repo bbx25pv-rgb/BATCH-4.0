@@ -160,7 +160,9 @@ export function CadenceVideoPlayer({
   const [actualQuality, setActualQuality] = useState<string>('unknown');
   const [availableQualities, setAvailableQualities] = useState<string[]>([]);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
+  const [isFallbackFullscreen, setIsFallbackFullscreen] = useState(false);
+  const isFullscreen = isNativeFullscreen || isFallbackFullscreen;
   const [showControls, setShowControls] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -195,7 +197,7 @@ export function CadenceVideoPlayer({
 
   useEffect(() => {
     const onFullscreenChange = () => {
-      setIsFullscreen(document.fullscreenElement === stageRef.current);
+      setIsNativeFullscreen(document.fullscreenElement === stageRef.current);
     };
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => {
@@ -203,10 +205,27 @@ export function CadenceVideoPlayer({
     };
   }, []);
 
-  // Close quality menu when clicking outside
+  useEffect(() => {
+    if (!isFallbackFullscreen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopImmediatePropagation();
+        setIsFallbackFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleEsc, true);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', handleEsc, true);
+    };
+  }, [isFallbackFullscreen]);
+
+  // Close quality menu when clicking or tapping outside
   useEffect(() => {
     if (!showQualityMenu) return;
-    const handleOutside = (e: MouseEvent) => {
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
       if (
         qualityMenuRef.current &&
         !qualityMenuRef.current.contains(e.target as Node)
@@ -215,7 +234,11 @@ export function CadenceVideoPlayer({
       }
     };
     document.addEventListener('mousedown', handleOutside);
-    return () => document.removeEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside, { passive: true });
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+    };
   }, [showQualityMenu]);
 
   const syncQualityLevels = useCallback((player: YTPlayerInstance) => {
@@ -544,16 +567,23 @@ export function CadenceVideoPlayer({
   const handleToggleFullscreen = useCallback(async () => {
     const el = stageRef.current;
     if (!el) return;
+    if (isFallbackFullscreen) {
+      setIsFallbackFullscreen(false);
+      return;
+    }
     try {
       if (document.fullscreenElement === el) {
         await document.exitFullscreen();
-      } else {
+      } else if (typeof el.requestFullscreen === 'function') {
         await el.requestFullscreen();
+      } else {
+        setIsFallbackFullscreen(true);
       }
     } catch {
-      // Fullscreen blocked by browser permissions
+      // Fallback theater fullscreen for iOS Safari & embedded mobile browsers
+      setIsFallbackFullscreen((prev) => !prev);
     }
-  }, []);
+  }, [isFallbackFullscreen]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const tag = (e.target as HTMLElement)?.tagName;
@@ -585,6 +615,10 @@ export function CadenceVideoPlayer({
         break;
       case 'escape':
         setShowQualityMenu(false);
+        if (isFallbackFullscreen) {
+          e.stopPropagation();
+          setIsFallbackFullscreen(false);
+        }
         break;
     }
   };
@@ -597,13 +631,6 @@ export function CadenceVideoPlayer({
     return ['default', ...levels];
   }, [availableQualities]);
 
-  const qualityButtonText =
-    selectedQuality === 'default'
-      ? actualQuality !== 'unknown'
-        ? `Auto · ${formatQualityShort(actualQuality)}`
-        : 'Auto'
-      : formatQualityShort(selectedQuality);
-
   const progressPercent = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
   const bufferedPercent = Math.min(100, bufferedFraction * 100);
 
@@ -613,12 +640,17 @@ export function CadenceVideoPlayer({
       tabIndex={0}
       onKeyDown={handleKeyDown}
       onMouseMove={scheduleHideControls}
+      onTouchStart={scheduleHideControls}
       onMouseLeave={() => {
         if (isPlaying && !showQualityMenu) setShowControls(false);
       }}
       aria-label={`Lecture video player: ${title}`}
-      className={`relative w-full bg-slate-950 select-none overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
-        isFullscreen ? 'flex items-center justify-center h-screen w-screen' : 'aspect-video'
+      className={`bg-slate-950 select-none overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+        isFallbackFullscreen
+          ? 'fixed inset-0 z-[60] w-screen h-[100dvh] flex items-center justify-center'
+          : isNativeFullscreen
+          ? 'relative flex items-center justify-center h-screen w-screen'
+          : 'relative w-full aspect-video'
       }`}
     >
       {/* Aspect-locked 16:9 canvas with vertical overscan cropping YouTube's top channel header & bottom watermark */}
@@ -630,7 +662,7 @@ export function CadenceVideoPlayer({
         <div
           ref={mountHostRef}
           aria-hidden="true"
-          className="absolute inset-x-0 -top-[72px] h-[calc(100%+144px)] pointer-events-none select-none"
+          className="absolute inset-x-0 -top-[52px] h-[calc(100%+104px)] sm:-top-[72px] sm:h-[calc(100%+144px)] pointer-events-none select-none"
         />
 
         {/* Click capture layer — prevents hovering/clicking underlying YouTube iframe */}
@@ -665,7 +697,7 @@ export function CadenceVideoPlayer({
                 handleTogglePlay();
               }
             }}
-            className="absolute inset-0 bg-slate-950 flex flex-col items-center justify-center p-6 text-center cursor-pointer group"
+            className="absolute inset-0 bg-slate-950 flex flex-col items-center justify-center p-4 sm:p-6 text-center cursor-pointer group"
           >
             {posterImage && (
               <img
@@ -681,18 +713,18 @@ export function CadenceVideoPlayer({
             />
             <div className="relative z-10 max-w-lg flex flex-col items-center">
               {subtitle && !compact && (
-                <p className="text-xs font-medium text-slate-300 mb-1.5">
+                <p className="text-[11px] sm:text-xs font-medium text-slate-300 mb-1 sm:mb-1.5">
                   {subtitle}
                 </p>
               )}
               {!compact && (
-                <h3 className="text-lg md:text-xl font-bold text-white leading-snug mb-5">
+                <h3 className="text-sm sm:text-lg md:text-xl font-bold text-white leading-snug mb-3 sm:mb-5 line-clamp-2">
                   {title}
                 </h3>
               )}
               <span
-                className={`inline-flex items-center gap-2.5 bg-blue-600 group-hover:bg-blue-500 text-white font-semibold rounded-lg transition-colors whitespace-nowrap ${
-                  compact ? 'px-4 py-2 text-xs' : 'px-5 py-2.5 text-sm'
+                className={`inline-flex items-center gap-2 bg-blue-600 group-hover:bg-blue-500 text-white font-semibold rounded-lg transition-colors whitespace-nowrap ${
+                  compact ? 'px-4 py-2 text-xs' : 'px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm'
                 }`}
               >
                 <Play className="w-4 h-4 fill-current" />
@@ -761,14 +793,14 @@ export function CadenceVideoPlayer({
         {/* Custom Cadence Study Player Controls */}
         {hasStarted && !errorMessage && (
           <div
-            className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-4 pb-3 pt-10 transition-opacity duration-200 ${
+            className={`absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-2.5 sm:px-4 pb-2.5 sm:pb-3 pt-8 sm:pt-10 transition-opacity duration-200 ${
               showControls || !isPlaying || showQualityMenu
                 ? 'opacity-100'
                 : 'opacity-0 pointer-events-none'
             }`}
           >
             {/* Interactive Scrub Bar */}
-            <div className="relative h-4 flex items-center mb-2 group">
+            <div className="relative h-7 sm:h-5 flex items-center mb-1.5 sm:mb-2 group touch-none">
               <div className="w-full h-1 bg-white/25 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-white/35 transition-[width] duration-150"
@@ -800,13 +832,13 @@ export function CadenceVideoPlayer({
             </div>
 
             {/* Bottom Transport Row */}
-            <div className="flex items-center justify-between gap-2 text-white">
-              <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
+            <div className="flex items-center justify-between gap-1.5 sm:gap-2 text-white">
+              <div className="flex items-center gap-1 sm:gap-2 min-w-0">
                 <button
                   type="button"
                   aria-label={isPlaying ? 'Pause' : 'Play'}
                   onClick={handleTogglePlay}
-                  className="p-1.5 rounded-md hover:bg-white/15 transition-colors shrink-0"
+                  className="min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 p-1.5 inline-flex items-center justify-center rounded-md hover:bg-white/15 transition-colors shrink-0"
                 >
                   {isPlaying ? (
                     <Pause className="w-4 h-4 fill-current" />
@@ -821,7 +853,7 @@ export function CadenceVideoPlayer({
                       type="button"
                       aria-label="Rewind 10 seconds"
                       onClick={() => handleSkipBy(-10)}
-                      className="p-1.5 rounded-md hover:bg-white/15 transition-colors shrink-0"
+                      className="hidden sm:inline-flex items-center justify-center p-1.5 rounded-md hover:bg-white/15 transition-colors shrink-0"
                       title="Rewind 10s"
                     >
                       <RotateCcw className="w-4 h-4" />
@@ -831,7 +863,7 @@ export function CadenceVideoPlayer({
                       type="button"
                       aria-label="Forward 10 seconds"
                       onClick={() => handleSkipBy(10)}
-                      className="p-1.5 rounded-md hover:bg-white/15 transition-colors shrink-0"
+                      className="hidden sm:inline-flex items-center justify-center p-1.5 rounded-md hover:bg-white/15 transition-colors shrink-0"
                       title="Forward 10s"
                     >
                       <RotateCw className="w-4 h-4" />
@@ -839,18 +871,18 @@ export function CadenceVideoPlayer({
                   </>
                 )}
 
-                <span className="text-xs font-mono tabular-nums text-slate-200 whitespace-nowrap ml-1">
+                <span className="text-[11px] sm:text-xs font-mono tabular-nums text-slate-200 whitespace-nowrap ml-0.5 sm:ml-1 truncate">
                   {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
                 </span>
               </div>
 
-              <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+              <div className="flex items-center gap-0.5 sm:gap-2 shrink-0">
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
                     aria-label={isMuted ? 'Unmute' : 'Mute'}
                     onClick={handleToggleMute}
-                    className="p-1.5 rounded-md hover:bg-white/15 transition-colors"
+                    className="min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 p-1.5 inline-flex items-center justify-center rounded-md hover:bg-white/15 transition-colors"
                   >
                     {isMuted || volume === 0 ? (
                       <VolumeX className="w-4 h-4" />
@@ -876,7 +908,7 @@ export function CadenceVideoPlayer({
                     type="button"
                     aria-label={`Playback speed ${playbackRate}x`}
                     onClick={handleCyclePlaybackRate}
-                    className="px-2 py-1 text-xs font-mono tabular-nums rounded-md hover:bg-white/15 transition-colors whitespace-nowrap"
+                    className="min-h-[36px] sm:min-h-0 px-2 py-1 text-[11px] sm:text-xs font-mono tabular-nums rounded-md hover:bg-white/15 transition-colors whitespace-nowrap"
                     title="Change playback speed"
                   >
                     {playbackRate}x
@@ -894,11 +926,24 @@ export function CadenceVideoPlayer({
                       setShowQualityMenu((v) => !v);
                       scheduleHideControls();
                     }}
-                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-mono tabular-nums rounded-md hover:bg-white/15 transition-colors whitespace-nowrap"
+                    className="min-h-[36px] sm:min-h-0 inline-flex items-center gap-1 px-2 py-1 text-[11px] sm:text-xs font-mono tabular-nums rounded-md hover:bg-white/15 transition-colors whitespace-nowrap"
                     title="Video quality"
                   >
-                    <Settings className="w-3.5 h-3.5" />
-                    <span>{qualityButtonText}</span>
+                    <Settings className="w-3.5 h-3.5 shrink-0" />
+                    <span>
+                      {selectedQuality === 'default' ? (
+                        actualQuality !== 'unknown' ? (
+                          <>
+                            <span className="hidden sm:inline">Auto · </span>
+                            {formatQualityShort(actualQuality)}
+                          </>
+                        ) : (
+                          'Auto'
+                        )
+                      ) : (
+                        formatQualityShort(selectedQuality)
+                      )}
+                    </span>
                   </button>
 
                   {showQualityMenu && (
@@ -910,7 +955,7 @@ export function CadenceVideoPlayer({
                       <p className="px-3 py-1 text-[11px] font-medium text-slate-400 border-b border-white/10">
                         Video Quality
                       </p>
-                      <div className="max-h-52 overflow-y-auto py-1">
+                      <div className="max-h-48 sm:max-h-52 overflow-y-auto py-1">
                         {qualityOptions.map((q) => {
                           const isSelected = selectedQuality === q;
                           const label =
@@ -924,7 +969,7 @@ export function CadenceVideoPlayer({
                               role="menuitemradio"
                               aria-checked={isSelected}
                               onClick={() => handleSelectQuality(q)}
-                              className={`w-full px-3 py-1.5 text-left text-xs flex items-center justify-between gap-2 transition-colors ${
+                              className={`w-full px-3 py-2 sm:py-1.5 text-left text-xs flex items-center justify-between gap-2 transition-colors ${
                                 isSelected
                                   ? 'text-blue-400 bg-white/10 font-medium'
                                   : 'text-slate-100 hover:bg-white/10'
@@ -946,7 +991,7 @@ export function CadenceVideoPlayer({
                   type="button"
                   aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
                   onClick={() => void handleToggleFullscreen()}
-                  className="p-1.5 rounded-md hover:bg-white/15 transition-colors"
+                  className="min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 p-1.5 inline-flex items-center justify-center rounded-md hover:bg-white/15 transition-colors"
                 >
                   {isFullscreen ? (
                     <Minimize2 className="w-4 h-4" />

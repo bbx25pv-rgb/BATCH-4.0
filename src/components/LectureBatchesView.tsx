@@ -266,7 +266,7 @@ export function LectureBatchesView({
   // Classroom & Private Curriculum View for a selected batch — displays subject lectures as clickable cards
   if (selectedBatch) {
     return (
-      <section className="max-w-[1280px] mx-auto px-6 py-8">
+      <section className="max-w-[1280px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <button
             type="button"
@@ -346,11 +346,11 @@ export function LectureBatchesView({
           </div>
 
           {moduleNames.length > 1 && (
-            <div className="inline-flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg self-start">
+            <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start max-w-full overflow-x-auto">
               <button
                 type="button"
                 onClick={() => setModuleFilter('all')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                className={`px-3 py-1.5 min-h-[34px] text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                   moduleFilter === 'all'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -363,7 +363,7 @@ export function LectureBatchesView({
                   key={mod}
                   type="button"
                   onClick={() => setModuleFilter(mod)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                  className={`px-3 py-1.5 min-h-[34px] text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                     moduleFilter === mod
                       ? 'bg-white text-slate-900 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
@@ -492,10 +492,10 @@ export function LectureBatchesView({
                 setIsPlayerCardOpen(false);
               }
             }}
-            className="fixed inset-0 z-50 bg-slate-950/75 flex items-center justify-center p-4 sm:p-6 overflow-y-auto"
+            className="fixed inset-0 z-50 bg-slate-950/75 flex items-center justify-center p-2 sm:p-6 overflow-y-auto"
           >
-            <div className="bg-white border border-slate-200 rounded-xl max-w-4xl w-full overflow-hidden shadow-2xl my-auto">
-              <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-4">
+            <div className="bg-white border border-slate-200 rounded-xl max-w-4xl w-full max-h-[94dvh] flex flex-col overflow-hidden shadow-2xl my-auto">
+              <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
                 <div className="min-w-0">
                   <p className="text-xs text-slate-500 truncate">
                     <span>{selectedBatch.subjectTag}</span>
@@ -512,7 +512,7 @@ export function LectureBatchesView({
                   </p>
                   <h2
                     id="lecture-player-card-title"
-                    className="text-lg font-bold text-slate-900 mt-0.5 truncate"
+                    className="text-base sm:text-lg font-bold text-slate-900 mt-0.5 truncate"
                   >
                     {activeLecture.title}
                   </h2>
@@ -522,71 +522,73 @@ export function LectureBatchesView({
                   type="button"
                   aria-label="Close lecture card"
                   onClick={() => setIsPlayerCardOpen(false)}
-                  className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors shrink-0"
+                  className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <CadenceVideoPlayer
-                key={activeLecture.id}
-                videoId={activeLecture.youtubeVideoId}
-                title={activeLecture.title}
-                subtitle={`${activeLecture.moduleName} · Lesson ${activeLectureIndex + 1}`}
-                posterImage={activeLecture.thumbnailUrl || selectedBatch.coverImage}
-                playTrigger={playTrigger}
-                hasNextLecture={Boolean(nextLecture)}
-                onNextLecture={() => {
-                  if (nextLecture) {
-                    setActiveLectureId(nextLecture.id);
-                    setPlayTrigger((c) => c + 1);
-                  }
-                }}
-              />
+              <div className="overflow-y-auto flex-1">
+                <CadenceVideoPlayer
+                  key={activeLecture.id}
+                  videoId={activeLecture.youtubeVideoId}
+                  title={activeLecture.title}
+                  subtitle={`${activeLecture.moduleName} · Lesson ${activeLectureIndex + 1}`}
+                  posterImage={activeLecture.thumbnailUrl || selectedBatch.coverImage}
+                  playTrigger={playTrigger}
+                  hasNextLecture={Boolean(nextLecture)}
+                  onNextLecture={() => {
+                    if (nextLecture) {
+                      setActiveLectureId(nextLecture.id);
+                      setPlayTrigger((c) => c + 1);
+                    }
+                  }}
+                />
 
-              <div className="p-5 bg-white border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  {activeLecture.summary ? (
-                    <p className="text-sm text-slate-600 leading-relaxed">
-                      {activeLecture.summary}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-slate-500">
-                      {selectedBatch.title} · {selectedBatch.instructor}
-                    </p>
-                  )}
-                </div>
+                <div className="p-4 sm:p-5 bg-white border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    {activeLecture.summary ? (
+                      <p className="text-sm text-slate-600 leading-relaxed">
+                        {activeLecture.summary}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-slate-500">
+                        {selectedBatch.title} · {selectedBatch.instructor}
+                      </p>
+                    )}
+                  </div>
 
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    disabled={!previousLecture}
-                    onClick={() => {
-                      if (previousLecture) {
-                        setActiveLectureId(previousLecture.id);
-                        setPlayTrigger((c) => c + 1);
-                      }
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:pointer-events-none rounded-lg transition-colors whitespace-nowrap shrink-0"
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                    <span>Previous</span>
-                  </button>
+                  <div className="flex items-center justify-end gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={!previousLecture}
+                      onClick={() => {
+                        if (previousLecture) {
+                          setActiveLectureId(previousLecture.id);
+                          setPlayTrigger((c) => c + 1);
+                        }
+                      }}
+                      className="min-h-[40px] inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:pointer-events-none rounded-lg transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Previous</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    disabled={!nextLecture}
-                    onClick={() => {
-                      if (nextLecture) {
-                        setActiveLectureId(nextLecture.id);
-                        setPlayTrigger((c) => c + 1);
-                      }
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none rounded-lg transition-colors whitespace-nowrap shrink-0"
-                  >
-                    <span>Next Lecture</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
+                    <button
+                      type="button"
+                      disabled={!nextLecture}
+                      onClick={() => {
+                        if (nextLecture) {
+                          setActiveLectureId(nextLecture.id);
+                          setPlayTrigger((c) => c + 1);
+                        }
+                      }}
+                      className="min-h-[40px] inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none rounded-lg transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <span>Next Lecture</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -598,7 +600,7 @@ export function LectureBatchesView({
 
   // Batch Catalog Grid
   return (
-    <section className="max-w-[1280px] mx-auto px-6 py-8">
+    <section className="max-w-[1280px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
       <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">
@@ -612,7 +614,7 @@ export function LectureBatchesView({
         </div>
 
         {userId ? (
-          <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start">
+          <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start max-w-full overflow-x-auto">
             {(
               [
                 { id: 'all', label: 'All Batches' },
@@ -624,7 +626,7 @@ export function LectureBatchesView({
                 key={tab.id}
                 type="button"
                 onClick={() => setCatalogFilter(tab.id)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                className={`px-3 py-1.5 min-h-[34px] text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                   effectiveFilter === tab.id
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -638,7 +640,7 @@ export function LectureBatchesView({
           <button
             type="button"
             onClick={onRequireSignIn}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 self-start"
+            className="min-h-[40px] px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 self-start"
           >
             Sign in to Enroll
           </button>
@@ -773,9 +775,9 @@ export function LectureBatchesView({
           role="dialog"
           aria-modal="true"
           aria-labelledby="checkout-title"
-          className="fixed inset-0 z-50 bg-slate-950/40 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-slate-950/40 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
         >
-          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full max-h-[92dvh] overflow-y-auto my-auto p-5 sm:p-6">
             <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-100">
               <div>
                 <p className="text-xs text-slate-500">Batch Enrollment</p>
@@ -785,8 +787,9 @@ export function LectureBatchesView({
               </div>
               <button
                 type="button"
+                aria-label="Close enrollment checkout"
                 onClick={() => setCheckoutBatch(null)}
-                className="p-1 text-slate-400 hover:text-slate-700"
+                className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center p-1 text-slate-400 hover:text-slate-700 rounded-lg"
               >
                 <X className="w-4 h-4" />
               </button>

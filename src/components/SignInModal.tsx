@@ -304,9 +304,9 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
       role="dialog"
       aria-modal="true"
       aria-labelledby="signin-modal-title"
-      className="fixed inset-0 z-50 bg-slate-950/40 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-slate-950/40 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
     >
-      <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6">
+      <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full max-h-[92dvh] overflow-y-auto my-auto p-5 sm:p-6">
         <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-100">
           <div>
             <h2 id="signin-modal-title" className="text-lg font-bold text-slate-900">
@@ -320,7 +320,7 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
             type="button"
             aria-label="Close sign in dialog"
             onClick={onClose}
-            className="p-1 text-slate-400 hover:text-slate-700"
+            className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center p-1 text-slate-400 hover:text-slate-700 rounded-lg shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
@@ -427,7 +427,7 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       placeholder="Your name"
-                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
                     />
                   </div>
                 </div>
@@ -450,7 +450,7 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="student@university.edu"
-                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
                   />
                 </div>
               </div>
@@ -484,7 +484,7 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="At least 6 characters"
-                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
                   />
                 </div>
               </div>
@@ -541,7 +541,7 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
                         value={phoneInput}
                         onChange={(e) => setPhoneInput(e.target.value)}
                         placeholder="+1 415 555 2671"
-                        className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-mono text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
+                        className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm font-mono text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
                       />
                     </div>
                   </div>
@@ -649,7 +649,7 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
                     autoComplete="email"
                     value={adminEmail}
                     onChange={(e) => setAdminEmail(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-mono text-slate-900 focus:outline-2 focus:outline-blue-600"
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm font-mono text-slate-900 focus:outline-2 focus:outline-blue-600"
                   />
                 </div>
               </div>
@@ -681,7 +681,7 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
                     value={adminPassword}
                     onChange={(e) => setAdminPassword(e.target.value)}
                     placeholder="At least 6 characters"
-                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
                   />
                 </div>
               </div>
