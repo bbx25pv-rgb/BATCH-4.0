@@ -34,5 +34,10 @@ assert.ok(rules.includes('isValidId('), 'Missing Path Variable Hardening');
 assert.ok(rules.includes('hasOnly('), 'Missing strict hasOnly field allowlists');
 assert.ok(rules.includes('request.time'), 'Missing server timestamp enforcement');
 assert.ok(rules.includes('hasActivePurchase(batchId)'), 'Missing batch purchase gate on lectures');
+assert.ok(
+  rules.includes('match /syllabus/{lectureId}') &&
+    rules.includes('(isVerified() &&\n           exists(/databases/$(database)/documents/batches/$(batchId))'),
+  'Syllabus previews must require verified sign-in'
+);
 
 console.log('All security rule structural invariants passed.');

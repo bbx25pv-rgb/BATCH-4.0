@@ -333,7 +333,7 @@
     },
     "LecturePreview": {
       "title": "LecturePreview",
-      "description": "Public lecture card preview metadata belonging to a batch. Excludes private YouTube URLs and video IDs.",
+      "description": "Lecture card preview metadata for signed-in users browsing published batches. Excludes private YouTube URLs and video IDs.",
       "type": "object",
       "properties": {
         "batchId": {
@@ -461,7 +461,7 @@
     },
     "/batches/{batchId}/syllabus/{lectureId}": {
       "schema": { "$ref": "#/entities/LecturePreview" },
-      "description": "Public lecture card preview metadata for published batches without unlisted video URLs or IDs."
+      "description": "Lecture card preview metadata for published batches readable only by signed-in verified users and admins without unlisted video URLs or IDs."
     },
     "/purchases/{purchaseId}": {
       "schema": { "$ref": "#/entities/BatchPurchase" },

@@ -123,6 +123,10 @@ function mapYouTubeError(code: number): string {
   }
 }
 
+function autoStartInitial(playTrigger: number): boolean {
+  return playTrigger > 0;
+}
+
 export function CadenceVideoPlayer({
   videoId,
   title,
@@ -139,14 +143,16 @@ export function CadenceVideoPlayer({
   const playerRef = useRef<YTPlayerInstance | null>(null);
   const pendingPlayRef = useRef(false);
   const hideControlsTimerRef = useRef<number | null>(null);
+  const autoplayWatchdogRef = useRef<number | null>(null);
+  const spinnerFailsafeRef = useRef<number | null>(null);
   const playTriggerRef = useRef(playTrigger);
   const prevVideoIdRef = useRef(videoId);
   const selectedQualityRef = useRef<string>('default');
 
   const [playerReady, setPlayerReady] = useState(false);
-  const [hasStarted, setHasStarted] = useState(false);
+  const [hasStarted, setHasStarted] = useState(autoStartInitial(playTrigger));
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isBuffering, setIsBuffering] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(autoStartInitial(playTrigger));
   const [isEnded, setIsEnded] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -154,6 +160,7 @@ export function CadenceVideoPlayer({
   const [isSeeking, setIsSeeking] = useState(false);
   const [volume, setVolume] = useState(100);
   const [isMuted, setIsMuted] = useState(false);
+  const [autoMutedHint, setAutoMutedHint] = useState(false);
   const [playbackRate, setPlaybackRate] = useState<number>(1);
   const [availableRates, setAvailableRates] = useState<number[]>([...SPEED_OPTIONS]);
   const [selectedQuality, setSelectedQuality] = useState<string>('default');
@@ -273,9 +280,19 @@ export function CadenceVideoPlayer({
     setBufferedFraction(0);
     setActualQuality('unknown');
     setAvailableQualities([]);
+    setAutoMutedHint(false);
     setShowQualityMenu(false);
     setErrorMessage(null);
     pendingPlayRef.current = autoStart;
+
+    if (autoplayWatchdogRef.current) {
+      window.clearTimeout(autoplayWatchdogRef.current);
+      autoplayWatchdogRef.current = null;
+    }
+    if (spinnerFailsafeRef.current) {
+      window.clearTimeout(spinnerFailsafeRef.current);
+      spinnerFailsafeRef.current = null;
+    }
 
     const hostEl = mountHostRef.current;
     if (!hostEl) return;
@@ -284,6 +301,50 @@ export function CadenceVideoPlayer({
     const mountNode = document.createElement('div');
     mountNode.className = 'w-full h-full';
     hostEl.appendChild(mountNode);
+
+    const startAutoplayWithMobileFallback = (player: YTPlayerInstance, YT: Awaited<ReturnType<typeof loadYouTubeIframeApi>>) => {
+      if (autoplayWatchdogRef.current) {
+        window.clearTimeout(autoplayWatchdogRef.current);
+        autoplayWatchdogRef.current = null;
+      }
+      if (spinnerFailsafeRef.current) {
+        window.clearTimeout(spinnerFailsafeRef.current);
+        spinnerFailsafeRef.current = null;
+      }
+
+      player.playVideo();
+
+      // Mobile browsers (iOS Safari / Android Chrome) often block unmuted cross-origin iframe autoplay
+      // once the tap activation expires during YT initialization; fall back to muted autoplay so video starts automatically.
+      autoplayWatchdogRef.current = window.setTimeout(() => {
+        if (cancelled) return;
+        try {
+          const st = player.getPlayerState?.();
+          if (st !== YT.PlayerState.PLAYING) {
+            player.mute();
+            setIsMuted(true);
+            setAutoMutedHint(true);
+            player.playVideo();
+
+            spinnerFailsafeRef.current = window.setTimeout(() => {
+              if (cancelled) return;
+              try {
+                const stAfter = player.getPlayerState?.();
+                if (stAfter !== YT.PlayerState.PLAYING && stAfter !== YT.PlayerState.BUFFERING) {
+                  setIsBuffering(false);
+                  setHasStarted(false);
+                  setAutoMutedHint(false);
+                }
+              } catch {
+                setIsBuffering(false);
+              }
+            }, 1800);
+          }
+        } catch {
+          // Ignore transient state read errors
+        }
+      }, 750);
+    };
 
     loadYouTubeIframeApi()
       .then((YT) => {
@@ -310,6 +371,14 @@ export function CadenceVideoPlayer({
             onReady: (event) => {
               if (cancelled) return;
               playerRef.current = event.target;
+              const iframeEl = mountHostRef.current?.querySelector('iframe');
+              if (iframeEl) {
+                iframeEl.setAttribute(
+                  'allow',
+                  'autoplay; encrypted-media; picture-in-picture; fullscreen'
+                );
+                iframeEl.setAttribute('playsinline', '1');
+              }
               setPlayerReady(true);
               const dur = event.target.getDuration();
               if (Number.isFinite(dur) && dur > 0) {
@@ -327,7 +396,7 @@ export function CadenceVideoPlayer({
               }
               if (pendingPlayRef.current) {
                 pendingPlayRef.current = false;
-                event.target.playVideo();
+                startAutoplayWithMobileFallback(event.target, YT);
               }
             },
             onStateChange: (event) => {
@@ -340,6 +409,14 @@ export function CadenceVideoPlayer({
               }
 
               if (state === PS.PLAYING) {
+                if (autoplayWatchdogRef.current) {
+                  window.clearTimeout(autoplayWatchdogRef.current);
+                  autoplayWatchdogRef.current = null;
+                }
+                if (spinnerFailsafeRef.current) {
+                  window.clearTimeout(spinnerFailsafeRef.current);
+                  spinnerFailsafeRef.current = null;
+                }
                 setHasStarted(true);
                 setIsPlaying(true);
                 setIsBuffering(false);
@@ -348,7 +425,7 @@ export function CadenceVideoPlayer({
                 if (selectedQualityRef.current !== 'default') {
                   event.target.setPlaybackQuality(selectedQualityRef.current);
                 }
-              } else if (state === PS.PAUSED) {
+              } else if (state === PS.PAUSED || state === PS.CUED) {
                 setIsPlaying(false);
                 setIsBuffering(false);
               } else if (state === PS.BUFFERING) {
@@ -396,6 +473,14 @@ export function CadenceVideoPlayer({
       if (hideControlsTimerRef.current) {
         window.clearTimeout(hideControlsTimerRef.current);
         hideControlsTimerRef.current = null;
+      }
+      if (autoplayWatchdogRef.current) {
+        window.clearTimeout(autoplayWatchdogRef.current);
+        autoplayWatchdogRef.current = null;
+      }
+      if (spinnerFailsafeRef.current) {
+        window.clearTimeout(spinnerFailsafeRef.current);
+        spinnerFailsafeRef.current = null;
       }
       if (playerRef.current) {
         try {
@@ -518,9 +603,11 @@ export function CadenceVideoPlayer({
       player.setVolume(restored);
       setVolume(restored);
       setIsMuted(false);
+      setAutoMutedHint(false);
     } else {
       player.mute();
       setIsMuted(true);
+      setAutoMutedHint(false);
     }
   }, [isMuted, playerReady, scheduleHideControls, volume]);
 
@@ -649,20 +736,20 @@ export function CadenceVideoPlayer({
         isFallbackFullscreen
           ? 'fixed inset-0 z-[60] w-screen h-[100dvh] flex items-center justify-center'
           : isNativeFullscreen
-          ? 'relative flex items-center justify-center h-screen w-screen'
-          : 'relative w-full aspect-video'
+          ? 'relative flex items-center justify-center h-[100dvh] w-screen'
+          : 'relative w-full aspect-video shrink-0'
       }`}
     >
       {/* Aspect-locked 16:9 canvas with vertical overscan cropping YouTube's top channel header & bottom watermark */}
       <div
         className={`relative overflow-hidden bg-slate-950 ${
-          isFullscreen ? 'w-full max-w-[177.78vh] aspect-video' : 'w-full h-full'
+          isFullscreen ? 'w-full max-w-[177.78dvh] max-h-full aspect-video' : 'w-full h-full'
         }`}
       >
         <div
           ref={mountHostRef}
           aria-hidden="true"
-          className="absolute inset-x-0 -top-[52px] h-[calc(100%+104px)] sm:-top-[72px] sm:h-[calc(100%+144px)] pointer-events-none select-none"
+          className="absolute inset-x-0 -top-[18%] h-[136%] sm:-top-[72px] sm:h-[calc(100%+144px)] pointer-events-none select-none"
         />
 
         {/* Click capture layer — prevents hovering/clicking underlying YouTube iframe */}
@@ -673,6 +760,18 @@ export function CadenceVideoPlayer({
           onDoubleClick={() => void handleToggleFullscreen()}
           className="absolute inset-0 w-full h-full cursor-pointer bg-transparent focus:outline-none"
         />
+
+        {/* Mobile Autoplay Unmute Prompt (shown when mobile browser blocked unmuted autoplay and auto-muted fallback started) */}
+        {hasStarted && !isEnded && !errorMessage && autoMutedHint && isMuted && (
+          <button
+            type="button"
+            onClick={handleToggleMute}
+            className="absolute top-3 left-3 z-20 inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-950/85 hover:bg-slate-900 border border-white/20 text-white text-xs font-medium rounded-lg shadow-md backdrop-blur-xs transition-colors"
+          >
+            <VolumeX className="w-3.5 h-3.5 text-amber-400" />
+            <span>Tap to Unmute</span>
+          </button>
+        )}
 
         {/* Top subtle edge mask to guarantee zero channel text bleed on start/pause */}
         {hasStarted && !isEnded && !errorMessage && (

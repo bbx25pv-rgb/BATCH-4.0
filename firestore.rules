@@ -319,16 +319,18 @@ service cloud.firestore {
         allow delete: if isAdmin() && isValidId(batchId) && isValidId(lectureId);
       }
 
-      // Public Syllabus Preview Subcollection: /batches/{batchId}/syllabus/{lectureId}
-      // Exposes lecture card metadata (title, module, duration, thumbnail, summary) for published batches
-      // without exposing private youtubeUrl or youtubeVideoId.
+      // Syllabus Preview Subcollection: /batches/{batchId}/syllabus/{lectureId}
+      // Exposes lecture card metadata (title, module, duration, thumbnail, summary) only to signed-in
+      // verified users (or admins) for published batches without exposing private youtubeUrl or youtubeVideoId.
       match /syllabus/{lectureId} {
         allow get: if isValidId(batchId) && isValidId(lectureId) && (
           isAdmin() ||
-          (exists(/databases/$(database)/documents/batches/$(batchId)) &&
+          (isVerified() &&
+           exists(/databases/$(database)/documents/batches/$(batchId)) &&
            get(/databases/$(database)/documents/batches/$(batchId)).data.isPublished == true)
         );
         allow list: if isAdmin() || (
+          isVerified() &&
           exists(/databases/$(database)/documents/batches/$(batchId)) &&
           get(/databases/$(database)/documents/batches/$(batchId)).data.isPublished == true
         );

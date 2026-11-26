@@ -21,6 +21,7 @@ import {
 import { db, handleFirestoreError, OperationType } from '@/src/lib/firebase';
 import { purchaseBatch } from '@/src/lib/studyService';
 import { resolveAssetUrl } from '@/src/lib/utils';
+import { loadYouTubeIframeApi } from '@/src/lib/youtubeApi';
 import { Batch, BatchPurchase, Lecture, LecturePreview } from '@/src/types';
 import { CadenceVideoPlayer } from '@/src/components/CadenceVideoPlayer';
 
@@ -140,8 +141,24 @@ export function LectureBatchesView({
     return isAdmin || activePurchasedBatchIds.has(selectedBatch.id);
   }, [selectedBatch, userId, isAdmin, activePurchasedBatchIds]);
 
+  // Signed-out users can only browse the batch/course catalog, never lectures inside
   useEffect(() => {
-    if (!selectedBatch) {
+    if (!userId) {
+      setSelectedBatchId(null);
+      setIsPlayerCardOpen(false);
+      setCheckoutBatch(null);
+      setPlayTrigger(0);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    if (userId && canAccessSelectedBatch) {
+      void loadYouTubeIframeApi().catch(() => {});
+    }
+  }, [userId, canAccessSelectedBatch]);
+
+  useEffect(() => {
+    if (!selectedBatch || !userId) {
       setLectures([]);
       setModuleFilter('all');
       setActiveLectureId(null);
@@ -177,7 +194,7 @@ export function LectureBatchesView({
     );
 
     return () => unsub();
-  }, [selectedBatch, canAccessSelectedBatch]);
+  }, [selectedBatch, userId, canAccessSelectedBatch]);
 
   const moduleNames = useMemo(() => {
     const seen = new Set<string>();
@@ -263,8 +280,8 @@ export function LectureBatchesView({
     }
   }
 
-  // Classroom & Private Curriculum View for a selected batch — displays subject lectures as clickable cards
-  if (selectedBatch) {
+  // Classroom & Private Curriculum View for a signed-in user opening a batch — displays subject lectures as clickable cards
+  if (selectedBatch && userId) {
     return (
       <section className="max-w-[1280px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
@@ -529,21 +546,25 @@ export function LectureBatchesView({
               </div>
 
               <div className="overflow-y-auto flex-1">
-                <CadenceVideoPlayer
-                  key={activeLecture.id}
-                  videoId={activeLecture.youtubeVideoId}
-                  title={activeLecture.title}
-                  subtitle={`${activeLecture.moduleName} · Lesson ${activeLectureIndex + 1}`}
-                  posterImage={activeLecture.thumbnailUrl || selectedBatch.coverImage}
-                  playTrigger={playTrigger}
-                  hasNextLecture={Boolean(nextLecture)}
-                  onNextLecture={() => {
-                    if (nextLecture) {
-                      setActiveLectureId(nextLecture.id);
-                      setPlayTrigger((c) => c + 1);
-                    }
-                  }}
-                />
+                <div className="w-full bg-slate-950">
+                  <div className="w-full max-w-[calc(70dvh*16/9)] mx-auto">
+                    <CadenceVideoPlayer
+                      key={activeLecture.id}
+                      videoId={activeLecture.youtubeVideoId}
+                      title={activeLecture.title}
+                      subtitle={`${activeLecture.moduleName} · Lesson ${activeLectureIndex + 1}`}
+                      posterImage={activeLecture.thumbnailUrl || selectedBatch.coverImage}
+                      playTrigger={playTrigger}
+                      hasNextLecture={Boolean(nextLecture)}
+                      onNextLecture={() => {
+                        if (nextLecture) {
+                          setActiveLectureId(nextLecture.id);
+                          setPlayTrigger((c) => c + 1);
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
 
                 <div className="p-4 sm:p-5 bg-white border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="min-w-0 flex-1">
@@ -609,7 +630,7 @@ export function LectureBatchesView({
           <p className="mt-1.5 text-sm text-slate-600 max-w-2xl">
             {userId
               ? 'Enroll in structured subject cohorts. Unlisted lecture videos are strictly restricted to students with an active batch purchase.'
-              : 'Browse all available subject cohorts below. Sign in to enroll and unlock unlisted lecture videos.'}
+              : 'Browse all available courses and batches below. Sign in to view lectures inside a batch and enroll.'}
           </p>
         </div>
 
@@ -694,7 +715,13 @@ export function LectureBatchesView({
               >
                 <button
                   type="button"
-                  onClick={() => setSelectedBatchId(batch.id)}
+                  onClick={() => {
+                    if (!userId) {
+                      onRequireSignIn();
+                      return;
+                    }
+                    setSelectedBatchId(batch.id);
+                  }}
                   className="text-left w-full flex-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-600"
                 >
                   <div className="aspect-video w-full bg-slate-100 overflow-hidden border-b border-slate-100">
@@ -739,7 +766,9 @@ export function LectureBatchesView({
                         <span className="font-mono tabular-nums font-semibold text-slate-900">
                           ${batch.priceUsd}
                         </span>
-                        <span>· Private lectures</span>
+                        <span>
+                          · {userId ? 'Private lectures' : 'Sign in to view'}
+                        </span>
                       </span>
                     )}
                   </div>
@@ -759,7 +788,7 @@ export function LectureBatchesView({
                       onClick={handleDirectEnroll}
                       className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0"
                     >
-                      <span>Purchase Batch</span>
+                      <span>{userId ? 'Purchase Batch' : 'Sign in to View'}</span>
                     </button>
                   )}
                 </div>
