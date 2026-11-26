@@ -238,7 +238,8 @@
           "maxLength": 600
         },
         "priceUsd": {
-          "type": "number"
+          "type": "number",
+          "description": "Batch enrollment tuition in INR (₹)."
         },
         "coverImage": {
           "type": "string",
@@ -406,7 +407,8 @@
           "maxLength": 120
         },
         "amountPaid": {
-          "type": "number"
+          "type": "number",
+          "description": "Amount paid for batch enrollment in INR (₹)."
         },
         "status": {
           "type": "string",

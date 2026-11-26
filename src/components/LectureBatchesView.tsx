@@ -20,7 +20,7 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '@/src/lib/firebase';
 import { purchaseBatch } from '@/src/lib/studyService';
-import { resolveAssetUrl } from '@/src/lib/utils';
+import { formatInr, resolveAssetUrl } from '@/src/lib/utils';
 import { loadYouTubeIframeApi } from '@/src/lib/youtubeApi';
 import { Batch, BatchPurchase, Lecture, LecturePreview } from '@/src/types';
 import { CadenceVideoPlayer } from '@/src/components/CadenceVideoPlayer';
@@ -327,8 +327,8 @@ export function LectureBatchesView({
               >
                 <span>
                   {userId
-                    ? `Purchase Batch · $${selectedBatch.priceUsd}`
-                    : `Sign in to Enroll · $${selectedBatch.priceUsd}`}
+                    ? `Purchase Batch · ${formatInr(selectedBatch.priceUsd)}`
+                    : `Sign in to Enroll · ${formatInr(selectedBatch.priceUsd)}`}
                 </span>
               </button>
             </div>
@@ -764,7 +764,7 @@ export function LectureBatchesView({
                       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600">
                         <Lock className="w-3.5 h-3.5 text-slate-400" />
                         <span className="font-mono tabular-nums font-semibold text-slate-900">
-                          ${batch.priceUsd}
+                          {formatInr(batch.priceUsd)}
                         </span>
                         <span>
                           · {userId ? 'Private lectures' : 'Sign in to view'}
@@ -838,7 +838,7 @@ export function LectureBatchesView({
               <div className="flex items-center justify-between pt-3 border-t border-slate-100">
                 <span className="font-medium text-slate-900">Batch Tuition</span>
                 <span className="text-lg font-bold font-mono tabular-nums text-slate-900">
-                  ${checkoutBatch.priceUsd}
+                  {formatInr(checkoutBatch.priceUsd)}
                 </span>
               </div>
               <p className="text-xs text-slate-500 pt-1 flex items-center gap-1.5">
@@ -866,7 +866,7 @@ export function LectureBatchesView({
                 onClick={() => void handleConfirmPurchase()}
                 className="px-5 py-2 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
               >
-                {purchasing ? 'Enrolling...' : `Confirm Purchase · $${checkoutBatch.priceUsd}`}
+                {purchasing ? 'Enrolling...' : `Confirm Purchase · ${formatInr(checkoutBatch.priceUsd)}`}
               </button>
             </div>
           </div>

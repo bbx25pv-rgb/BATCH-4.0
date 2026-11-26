@@ -24,6 +24,11 @@ export function formatTimerSeconds(totalSeconds: number): string {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+export function formatInr(amount: number): string {
+  const safe = Number.isFinite(amount) ? Math.max(0, amount) : 0;
+  return `₹${safe.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+}
+
 /**
  * Extracts an 11-character YouTube video ID from standard, unlisted, share,
  * embed, or live YouTube URLs.

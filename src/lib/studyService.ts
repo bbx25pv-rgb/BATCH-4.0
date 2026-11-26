@@ -12,7 +12,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { User } from 'firebase/auth';
-import { db, handleFirestoreError, OperationType } from '@/src/lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from '@/src/lib/firebase';
 import {
   BATCH_COVER_IMAGES,
   Batch,
@@ -389,7 +389,7 @@ export async function createBatch(
   const id = makeDocId('batch');
   const path = `batches/${id}`;
   const rawPrice = Number(input.priceUsd);
-  const safePrice = Number.isFinite(rawPrice) ? Math.min(5000, Math.max(0, rawPrice)) : 0;
+  const safePrice = Number.isFinite(rawPrice) ? Math.min(500000, Math.max(0, rawPrice)) : 0;
   try {
     await setDoc(doc(db, 'batches', id), {
       title: sanitizeString(input.title, VALIDATION_LIMITS.batchTitleMax),
@@ -424,7 +424,7 @@ export async function updateBatch(
 ): Promise<void> {
   const path = `batches/${batchId}`;
   const rawPrice = Number(input.priceUsd);
-  const safePrice = Number.isFinite(rawPrice) ? Math.min(5000, Math.max(0, rawPrice)) : 0;
+  const safePrice = Number.isFinite(rawPrice) ? Math.min(500000, Math.max(0, rawPrice)) : 0;
   try {
     await updateDoc(doc(db, 'batches', batchId), {
       title: sanitizeString(input.title, VALIDATION_LIMITS.batchTitleMax),
@@ -570,7 +570,7 @@ export async function updateUnlistedLecture(
       });
     } else {
       const lectureSnap = await getDoc(lectureRef);
-      const createdBy = lectureSnap.data()?.createdBy;
+      const createdBy = auth.currentUser?.uid || lectureSnap.data()?.createdBy;
       if (createdBy) {
         batch.set(syllabusRef, {
           batchId,
@@ -783,7 +783,7 @@ export async function seedStarterBatches(adminUid: string): Promise<void> {
       subjectTag: 'Physics',
       instructor: 'Dr. Elena Rostova',
       description: 'Rigorous problem-solving cohort covering Lagrangian intuition, rotational inertia, oscillations, and central force motion.',
-      priceUsd: 79,
+      priceUsd: 999,
       coverImage: BATCH_COVER_IMAGES[0].path,
     },
     {
@@ -791,7 +791,7 @@ export async function seedStarterBatches(adminUid: string): Promise<void> {
       subjectTag: 'Chemistry',
       instructor: 'Prof. Arjun Mehta',
       description: 'Structured synthesis and stereochemistry curriculum designed around arrow-pushing logic and spectroscopic analysis.',
-      priceUsd: 89,
+      priceUsd: 1299,
       coverImage: BATCH_COVER_IMAGES[1].path,
     },
     {
@@ -799,7 +799,7 @@ export async function seedStarterBatches(adminUid: string): Promise<void> {
       subjectTag: 'Mathematics',
       instructor: 'Dr. Claire Beaumont',
       description: 'Visual and analytical deep dive into partial derivatives, line integrals, Stokes theorem, and optimization.',
-      priceUsd: 69,
+      priceUsd: 899,
       coverImage: BATCH_COVER_IMAGES[2].path,
     },
     {
@@ -807,7 +807,7 @@ export async function seedStarterBatches(adminUid: string): Promise<void> {
       subjectTag: 'Computer Science',
       instructor: 'Marcus Vance',
       description: 'Competitive and academic foundations in graph traversal, shortest paths, recurrence relations, and DP state design.',
-      priceUsd: 95,
+      priceUsd: 1499,
       coverImage: BATCH_COVER_IMAGES[3].path,
     },
   ];

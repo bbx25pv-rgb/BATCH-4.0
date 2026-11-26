@@ -6,6 +6,7 @@ import {
   Image as ImageIcon,
   KeyRound,
   Link2,
+  Pencil,
   Plus,
   ShieldCheck,
   Sparkles,
@@ -39,9 +40,11 @@ import {
   syncBatchSyllabusPreviews,
   updateBatch,
   updateLectureThumbnail,
+  updateUnlistedLecture,
 } from '@/src/lib/studyService';
 import {
   compressImageToThumbnailDataUrl,
+  formatInr,
   isSafeThumbnailUrl,
   parseYouTubeVideoId,
   resolveAssetUrl,
@@ -78,11 +81,22 @@ export function AdminConsoleView({
   const [subjectTag, setSubjectTag] = useState('');
   const [instructor, setInstructor] = useState('');
   const [description, setDescription] = useState('');
-  const [priceUsd, setPriceUsd] = useState(79);
+  const [priceUsd, setPriceUsd] = useState(999);
   const [coverImage, setCoverImage] = useState<string>(BATCH_COVER_IMAGES[0].path);
   const [isPublished, setIsPublished] = useState(true);
   const [savingBatch, setSavingBatch] = useState(false);
   const [seeding, setSeeding] = useState(false);
+
+  // Inline batch editor state
+  const [editingBatchId, setEditingBatchId] = useState<string | null>(null);
+  const [editBatchTitle, setEditBatchTitle] = useState('');
+  const [editBatchTag, setEditBatchTag] = useState('');
+  const [editBatchInstructor, setEditBatchInstructor] = useState('');
+  const [editBatchDescription, setEditBatchDescription] = useState('');
+  const [editBatchPrice, setEditBatchPrice] = useState(999);
+  const [editBatchCover, setEditBatchCover] = useState<string>(BATCH_COVER_IMAGES[0].path);
+  const [editBatchPublished, setEditBatchPublished] = useState(true);
+  const [savingBatchEdit, setSavingBatchEdit] = useState(false);
 
   // Lecture creation state (Admin only adds YouTube unlisted links)
   const [lecTitle, setLecTitle] = useState('');
@@ -93,6 +107,17 @@ export function AdminConsoleView({
   const [lecSummary, setLecSummary] = useState('');
   const [lecThumbnailUrl, setLecThumbnailUrl] = useState('');
   const [savingLecture, setSavingLecture] = useState(false);
+
+  // Inline lecture video editor state
+  const [editingLecId, setEditingLecId] = useState<string | null>(null);
+  const [editLecTitle, setEditLecTitle] = useState('');
+  const [editLecModule, setEditLecModule] = useState('');
+  const [editLecOrder, setEditLecOrder] = useState(1);
+  const [editLecDuration, setEditLecDuration] = useState(35);
+  const [editLecYoutubeUrl, setEditLecYoutubeUrl] = useState('');
+  const [editLecSummary, setEditLecSummary] = useState('');
+  const [editLecThumbUrl, setEditLecThumbUrl] = useState('');
+  const [savingLectureEdit, setSavingLectureEdit] = useState(false);
 
   // Inline lecture thumbnail editor state
   const [editingThumbLecId, setEditingThumbLecId] = useState<string | null>(null);
@@ -134,6 +159,8 @@ export function AdminConsoleView({
   }, [adminUid, batches]);
 
   useEffect(() => {
+    setEditingLecId(null);
+    setEditingThumbLecId(null);
     if (!selectedBatchId) {
       setLectures([]);
       return;
@@ -165,6 +192,11 @@ export function AdminConsoleView({
   const parsedPreviewId = useMemo(
     () => parseYouTubeVideoId(youtubeUrl),
     [youtubeUrl]
+  );
+
+  const parsedEditPreviewId = useMemo(
+    () => parseYouTubeVideoId(editLecYoutubeUrl),
+    [editLecYoutubeUrl]
   );
 
   const selectedBatch = useMemo(
@@ -253,6 +285,49 @@ export function AdminConsoleView({
     }
   }
 
+  function startEditingBatch(batch: Batch) {
+    if (editingBatchId === batch.id) {
+      setEditingBatchId(null);
+      return;
+    }
+    setEditingBatchId(batch.id);
+    setEditBatchTitle(batch.title);
+    setEditBatchTag(batch.subjectTag);
+    setEditBatchInstructor(batch.instructor);
+    setEditBatchDescription(batch.description);
+    setEditBatchPrice(batch.priceUsd);
+    setEditBatchCover(batch.coverImage);
+    setEditBatchPublished(batch.isPublished);
+    setErrorMsg(null);
+    setFeedback(null);
+  }
+
+  async function handleSaveEditedBatch(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingBatchId) return;
+    setErrorMsg(null);
+    setFeedback(null);
+    setSavingBatchEdit(true);
+    try {
+      if (!(await ensureVerifiedAdminSession())) return;
+      await updateBatch(editingBatchId, {
+        title: editBatchTitle,
+        subjectTag: editBatchTag,
+        instructor: editBatchInstructor,
+        description: editBatchDescription,
+        priceUsd: editBatchPrice,
+        coverImage: editBatchCover,
+        isPublished: editBatchPublished,
+      });
+      setFeedback(`Updated batch "${editBatchTitle.trim()}".`);
+      setEditingBatchId(null);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Unable to update batch.');
+    } finally {
+      setSavingBatchEdit(false);
+    }
+  }
+
   async function handleAddLecture(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedBatchId) {
@@ -327,6 +402,58 @@ export function AdminConsoleView({
       setErrorMsg(err instanceof Error ? err.message : 'Unable to update thumbnail.');
     } finally {
       setSavingThumb(false);
+    }
+  }
+
+  function startEditingLecture(lec: Lecture) {
+    if (editingLecId === lec.id) {
+      setEditingLecId(null);
+      return;
+    }
+    setEditingThumbLecId(null);
+    setEditingLecId(lec.id);
+    setEditLecTitle(lec.title);
+    setEditLecModule(lec.moduleName);
+    setEditLecOrder(lec.orderIndex + 1);
+    setEditLecDuration(lec.durationMinutes);
+    setEditLecYoutubeUrl(lec.youtubeUrl || lec.youtubeVideoId);
+    setEditLecSummary(lec.summary || '');
+    setEditLecThumbUrl(lec.thumbnailUrl || '');
+    setErrorMsg(null);
+    setFeedback(null);
+  }
+
+  async function handleSaveEditedLecture(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedBatchId || !editingLecId) return;
+    if (!parsedEditPreviewId) {
+      setErrorMsg('Enter a valid YouTube unlisted video link or 11-character video ID.');
+      return;
+    }
+    if (!isSafeThumbnailUrl(editLecThumbUrl)) {
+      setErrorMsg('Thumbnail URL must start with https:// or be an uploaded image.');
+      return;
+    }
+    setErrorMsg(null);
+    setFeedback(null);
+    setSavingLectureEdit(true);
+    try {
+      if (!(await ensureVerifiedAdminSession())) return;
+      await updateUnlistedLecture(selectedBatchId, editingLecId, {
+        title: editLecTitle,
+        moduleName: editLecModule,
+        orderIndex: Math.max(0, editLecOrder - 1),
+        durationMinutes: editLecDuration,
+        youtubeUrl: editLecYoutubeUrl,
+        summary: editLecSummary,
+        thumbnailUrl: editLecThumbUrl,
+      });
+      setFeedback(`Updated lecture "${editLecTitle.trim()}".`);
+      setEditingLecId(null);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Unable to update lecture.');
+    } finally {
+      setSavingLectureEdit(false);
     }
   }
 
@@ -578,13 +705,13 @@ export function AdminConsoleView({
             </div>
             <div>
               <label htmlFor="b-price" className="block text-xs font-medium text-slate-700 mb-1">
-                Batch Price (USD)
+                Batch Price (INR ₹)
               </label>
               <input
                 id="b-price"
                 type="number"
                 min={0}
-                max={5000}
+                max={500000}
                 value={priceUsd}
                 onChange={(e) => setPriceUsd(Number(e.target.value))}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono tabular-nums"
@@ -893,6 +1020,7 @@ export function AdminConsoleView({
                 {lectures.map((lec) => {
                   const thumbSrc = lec.thumbnailUrl || selectedBatch?.coverImage;
                   const isEditingThumb = editingThumbLecId === lec.id;
+                  const isEditingLec = editingLecId === lec.id;
                   return (
                     <div key={lec.id} className="py-3 space-y-2.5">
                       <div className="flex items-center justify-between gap-3">
@@ -923,9 +1051,23 @@ export function AdminConsoleView({
                         <div className="flex items-center gap-1 shrink-0">
                           <button
                             type="button"
+                            aria-label={`Edit ${lec.title}`}
+                            title="Edit lecture & video"
+                            onClick={() => startEditingLecture(lec)}
+                            className={`p-1.5 rounded transition-colors ${
+                              isEditingLec
+                                ? 'text-blue-700 bg-blue-50'
+                                : 'text-slate-400 hover:text-blue-600'
+                            }`}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
                             aria-label={`Edit thumbnail for ${lec.title}`}
                             title="Set lecture thumbnail"
                             onClick={() => {
+                              setEditingLecId(null);
                               if (isEditingThumb) {
                                 setEditingThumbLecId(null);
                                 setEditingThumbUrl('');
@@ -934,7 +1076,11 @@ export function AdminConsoleView({
                                 setEditingThumbUrl(lec.thumbnailUrl ?? '');
                               }
                             }}
-                            className="p-1.5 text-slate-400 hover:text-blue-600 rounded transition-colors"
+                            className={`p-1.5 rounded transition-colors ${
+                              isEditingThumb
+                                ? 'text-blue-700 bg-blue-50'
+                                : 'text-slate-400 hover:text-blue-600'
+                            }`}
                           >
                             <ImageIcon className="w-4 h-4" />
                           </button>
@@ -948,6 +1094,227 @@ export function AdminConsoleView({
                           </button>
                         </div>
                       </div>
+
+                      {isEditingLec && (
+                        <form
+                          onSubmit={handleSaveEditedLecture}
+                          className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-slate-800">
+                              Edit Lecture & Video Link
+                            </p>
+                            <button
+                              type="button"
+                              aria-label="Cancel lecture edit"
+                              onClick={() => setEditingLecId(null)}
+                              className="p-1 text-slate-400 hover:text-slate-700 rounded"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div className="md:col-span-2">
+                              <label
+                                htmlFor={`edit-lec-title-${lec.id}`}
+                                className="block text-[11px] font-medium text-slate-700 mb-1"
+                              >
+                                Lecture Title
+                              </label>
+                              <input
+                                id={`edit-lec-title-${lec.id}`}
+                                type="text"
+                                required
+                                maxLength={VALIDATION_LIMITS.lectureDocTitleMax}
+                                value={editLecTitle}
+                                onChange={(e) => setEditLecTitle(e.target.value)}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                              />
+                            </div>
+                            <div>
+                              <label
+                                htmlFor={`edit-lec-mod-${lec.id}`}
+                                className="block text-[11px] font-medium text-slate-700 mb-1"
+                              >
+                                Module / Unit
+                              </label>
+                              <input
+                                id={`edit-lec-mod-${lec.id}`}
+                                type="text"
+                                required
+                                maxLength={VALIDATION_LIMITS.moduleNameMax}
+                                value={editLecModule}
+                                onChange={(e) => setEditLecModule(e.target.value)}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                            <div className="md:col-span-2">
+                              <label
+                                htmlFor={`edit-lec-url-${lec.id}`}
+                                className="block text-[11px] font-medium text-slate-700 mb-1"
+                              >
+                                YouTube Video Link or ID
+                              </label>
+                              <div className="relative">
+                                <Link2 className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                                <input
+                                  id={`edit-lec-url-${lec.id}`}
+                                  type="text"
+                                  required
+                                  maxLength={VALIDATION_LIMITS.youtubeUrlMax}
+                                  value={editLecYoutubeUrl}
+                                  onChange={(e) => setEditLecYoutubeUrl(e.target.value)}
+                                  className="w-full pl-8 pr-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs font-mono"
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label
+                                htmlFor={`edit-lec-dur-${lec.id}`}
+                                className="block text-[11px] font-medium text-slate-700 mb-1"
+                              >
+                                Duration (min)
+                              </label>
+                              <input
+                                id={`edit-lec-dur-${lec.id}`}
+                                type="number"
+                                min={1}
+                                max={600}
+                                value={editLecDuration}
+                                onChange={(e) => setEditLecDuration(Number(e.target.value))}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs font-mono tabular-nums"
+                              />
+                            </div>
+                            <div>
+                              <label
+                                htmlFor={`edit-lec-order-${lec.id}`}
+                                className="block text-[11px] font-medium text-slate-700 mb-1"
+                              >
+                                Lesson Order
+                              </label>
+                              <input
+                                id={`edit-lec-order-${lec.id}`}
+                                type="number"
+                                min={1}
+                                max={1000}
+                                value={editLecOrder}
+                                onChange={(e) => setEditLecOrder(Number(e.target.value))}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs font-mono tabular-nums"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label
+                              htmlFor={`edit-lec-sum-${lec.id}`}
+                              className="block text-[11px] font-medium text-slate-700 mb-1"
+                            >
+                              Lecture Notes / Key Takeaways
+                            </label>
+                            <input
+                              id={`edit-lec-sum-${lec.id}`}
+                              type="text"
+                              maxLength={VALIDATION_LIMITS.lectureSummaryMax}
+                              value={editLecSummary}
+                              onChange={(e) => setEditLecSummary(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <label
+                                htmlFor={`edit-lec-thumb-${lec.id}`}
+                                className="block text-[11px] font-medium text-slate-700"
+                              >
+                                Thumbnail (optional)
+                              </label>
+                              <div className="flex flex-wrap items-center gap-2">
+                                {parsedEditPreviewId && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setEditLecThumbUrl(
+                                        `https://i.ytimg.com/vi/${parsedEditPreviewId}/hqdefault.jpg`
+                                      )
+                                    }
+                                    className="text-[11px] text-blue-600 hover:underline whitespace-nowrap"
+                                  >
+                                    Use Video Thumbnail
+                                  </button>
+                                )}
+                                <label className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-800 text-[11px] font-medium rounded cursor-pointer whitespace-nowrap">
+                                  <Upload className="w-3 h-3" />
+                                  <span>Upload</span>
+                                  <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      void handleThumbnailFileUpload(file, setEditLecThumbUrl);
+                                      e.target.value = '';
+                                    }}
+                                  />
+                                </label>
+                                {editLecThumbUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditLecThumbUrl('')}
+                                    className="text-[11px] text-slate-500 hover:text-rose-700"
+                                  >
+                                    Clear
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <input
+                              id={`edit-lec-thumb-${lec.id}`}
+                              type="text"
+                              value={
+                                editLecThumbUrl.startsWith('data:image/')
+                                  ? 'Uploaded custom thumbnail image'
+                                  : editLecThumbUrl
+                              }
+                              readOnly={editLecThumbUrl.startsWith('data:image/')}
+                              onChange={(e) => setEditLecThumbUrl(e.target.value)}
+                              placeholder="https://... or upload image"
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                            />
+                          </div>
+
+                          {parsedEditPreviewId ? (
+                            <p className="text-[11px] font-mono text-emerald-700">
+                              Verified Video ID: {parsedEditPreviewId}
+                            </p>
+                          ) : (
+                            <p className="text-[11px] text-rose-700">
+                              Enter a valid YouTube link or 11-character video ID.
+                            </p>
+                          )}
+
+                          <div className="flex items-center justify-end gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setEditingLecId(null)}
+                              className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-md"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={savingLectureEdit || !parsedEditPreviewId}
+                              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md disabled:opacity-50"
+                            >
+                              {savingLectureEdit ? 'Saving...' : 'Save Lecture'}
+                            </button>
+                          </div>
+                        </form>
+                      )}
 
                       {isEditingThumb && (
                         <div className="pl-0 sm:pl-23 flex flex-wrap items-center gap-2">
@@ -1026,39 +1393,221 @@ export function AdminConsoleView({
               <p className="text-xs text-slate-500">No batches yet.</p>
             ) : (
               <div className="divide-y divide-slate-100">
-                {batches.map((b) => (
-                  <div
-                    key={b.id}
-                    className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-900 truncate">
-                        {b.title}
-                      </p>
-                      <p className="text-xs text-slate-500 font-mono tabular-nums">
-                        ${b.priceUsd} · {b.lectureCount} lectures ·{' '}
-                        {b.isPublished ? 'Published' : 'Draft'}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleToggleBatchPublished(b)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-md hover:bg-slate-50 shrink-0"
+                {batches.map((b) => {
+                  const isEditingThisBatch = editingBatchId === b.id;
+                  return (
+                    <div
+                      key={b.id}
+                      className="py-3 first:pt-0 last:pb-0 space-y-3"
                     >
-                      {b.isPublished ? (
-                        <>
-                          <EyeOff className="w-3.5 h-3.5 text-slate-500" />
-                          <span>Hide</span>
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="w-3.5 h-3.5 text-blue-600" />
-                          <span>Publish</span>
-                        </>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-900 truncate">
+                            {b.title}
+                          </p>
+                          <p className="text-xs text-slate-500 font-mono tabular-nums">
+                            {formatInr(b.priceUsd)} · {b.lectureCount} lectures ·{' '}
+                            {b.isPublished ? 'Published' : 'Draft'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            aria-label={`Edit ${b.title}`}
+                            onClick={() => startEditingBatch(b)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium border rounded-md transition-colors shrink-0 ${
+                              isEditingThisBatch
+                                ? 'border-blue-300 bg-blue-50 text-blue-700'
+                                : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                            }`}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleToggleBatchPublished(b)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium border border-slate-200 rounded-md hover:bg-slate-50 shrink-0"
+                          >
+                            {b.isPublished ? (
+                              <>
+                                <EyeOff className="w-3.5 h-3.5 text-slate-500" />
+                                <span>Hide</span>
+                              </>
+                            ) : (
+                              <>
+                                <Eye className="w-3.5 h-3.5 text-blue-600" />
+                                <span>Publish</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {isEditingThisBatch && (
+                        <form
+                          onSubmit={handleSaveEditedBatch}
+                          className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-slate-800">
+                              Edit Batch Details
+                            </p>
+                            <button
+                              type="button"
+                              aria-label="Cancel batch edit"
+                              onClick={() => setEditingBatchId(null)}
+                              className="p-1 text-slate-400 hover:text-slate-700 rounded"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div>
+                            <label
+                              htmlFor={`edit-b-title-${b.id}`}
+                              className="block text-[11px] font-medium text-slate-700 mb-1"
+                            >
+                              Batch Title
+                            </label>
+                            <input
+                              id={`edit-b-title-${b.id}`}
+                              type="text"
+                              required
+                              maxLength={VALIDATION_LIMITS.batchTitleMax}
+                              value={editBatchTitle}
+                              onChange={(e) => setEditBatchTitle(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label
+                                htmlFor={`edit-b-tag-${b.id}`}
+                                className="block text-[11px] font-medium text-slate-700 mb-1"
+                              >
+                                Subject Tag
+                              </label>
+                              <input
+                                id={`edit-b-tag-${b.id}`}
+                                type="text"
+                                required
+                                maxLength={VALIDATION_LIMITS.subjectTagMax}
+                                value={editBatchTag}
+                                onChange={(e) => setEditBatchTag(e.target.value)}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                              />
+                            </div>
+                            <div>
+                              <label
+                                htmlFor={`edit-b-inst-${b.id}`}
+                                className="block text-[11px] font-medium text-slate-700 mb-1"
+                              >
+                                Instructor
+                              </label>
+                              <input
+                                id={`edit-b-inst-${b.id}`}
+                                type="text"
+                                required
+                                maxLength={VALIDATION_LIMITS.instructorMax}
+                                value={editBatchInstructor}
+                                onChange={(e) => setEditBatchInstructor(e.target.value)}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label
+                                htmlFor={`edit-b-price-${b.id}`}
+                                className="block text-[11px] font-medium text-slate-700 mb-1"
+                              >
+                                Batch Price (INR ₹)
+                              </label>
+                              <input
+                                id={`edit-b-price-${b.id}`}
+                                type="number"
+                                min={0}
+                                max={500000}
+                                value={editBatchPrice}
+                                onChange={(e) => setEditBatchPrice(Number(e.target.value))}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs font-mono tabular-nums"
+                              />
+                            </div>
+                            <div>
+                              <label
+                                htmlFor={`edit-b-cover-${b.id}`}
+                                className="block text-[11px] font-medium text-slate-700 mb-1"
+                              >
+                                Cover Artwork
+                              </label>
+                              <select
+                                id={`edit-b-cover-${b.id}`}
+                                value={editBatchCover}
+                                onChange={(e) => setEditBatchCover(e.target.value)}
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                              >
+                                {BATCH_COVER_IMAGES.map((img) => (
+                                  <option key={img.path} value={img.path}>
+                                    {img.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label
+                              htmlFor={`edit-b-desc-${b.id}`}
+                              className="block text-[11px] font-medium text-slate-700 mb-1"
+                            >
+                              Batch Description
+                            </label>
+                            <textarea
+                              id={`edit-b-desc-${b.id}`}
+                              rows={2}
+                              required
+                              maxLength={VALIDATION_LIMITS.batchDescriptionMax}
+                              value={editBatchDescription}
+                              onChange={(e) => setEditBatchDescription(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                            />
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                            <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={editBatchPublished}
+                                onChange={(e) => setEditBatchPublished(e.target.checked)}
+                                className="rounded border-slate-300"
+                              />
+                              <span>Published</span>
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setEditingBatchId(null)}
+                                className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-md"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="submit"
+                                disabled={savingBatchEdit}
+                                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md disabled:opacity-50"
+                              >
+                                {savingBatchEdit ? 'Saving...' : 'Save Changes'}
+                              </button>
+                            </div>
+                          </div>
+                        </form>
                       )}
-                    </button>
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

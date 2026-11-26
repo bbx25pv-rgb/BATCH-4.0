@@ -123,7 +123,7 @@ service cloud.firestore {
         data.subjectTag is string && data.subjectTag.size() >= 1 && data.subjectTag.size() <= 40 &&
         data.instructor is string && data.instructor.size() >= 1 && data.instructor.size() <= 80 &&
         data.description is string && data.description.size() >= 1 && data.description.size() <= 600 &&
-        data.priceUsd is number && data.priceUsd >= 0 && data.priceUsd <= 5000 &&
+        data.priceUsd is number && data.priceUsd >= 0 && data.priceUsd <= 500000 &&
         data.coverImage is string && data.coverImage.size() >= 1 && data.coverImage.size() <= 300 &&
         data.lectureCount is number && data.lectureCount >= 0 && data.lectureCount <= 500 &&
         data.isPublished is bool &&
@@ -184,7 +184,7 @@ service cloud.firestore {
         isValidId(data.userId) &&
         isValidId(data.batchId) &&
         data.batchTitle is string && data.batchTitle.size() >= 1 && data.batchTitle.size() <= 120 &&
-        data.amountPaid is number && data.amountPaid >= 0 && data.amountPaid <= 5000 &&
+        data.amountPaid is number && data.amountPaid >= 0 && data.amountPaid <= 500000 &&
         data.status in ['active', 'revoked'] &&
         isValidId(data.grantedBy) &&
         data.purchasedAt is timestamp &&
