@@ -140,6 +140,7 @@ export function CadenceVideoPlayer({
   const stageRef = useRef<HTMLDivElement | null>(null);
   const mountHostRef = useRef<HTMLDivElement | null>(null);
   const qualityMenuRef = useRef<HTMLDivElement | null>(null);
+  const scrubTrackRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YTPlayerInstance | null>(null);
   const pendingPlayRef = useRef(false);
   const hideControlsTimerRef = useRef<number | null>(null);
@@ -169,6 +170,7 @@ export function CadenceVideoPlayer({
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
   const [isFallbackFullscreen, setIsFallbackFullscreen] = useState(false);
+  const [isRotatedLandscape, setIsRotatedLandscape] = useState(false);
   const isFullscreen = isNativeFullscreen || isFallbackFullscreen;
   const [showControls, setShowControls] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -204,13 +206,40 @@ export function CadenceVideoPlayer({
 
   useEffect(() => {
     const onFullscreenChange = () => {
-      setIsNativeFullscreen(document.fullscreenElement === stageRef.current);
+      const active = document.fullscreenElement === stageRef.current;
+      setIsNativeFullscreen(active);
+      if (!active) {
+        setIsRotatedLandscape(false);
+        try {
+          (
+            screen.orientation as ScreenOrientation & { unlock?: () => void }
+          )?.unlock?.();
+        } catch {
+          // Ignore if unsupported
+        }
+      }
     };
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => {
       document.removeEventListener('fullscreenchange', onFullscreenChange);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isRotatedLandscape) return;
+    const handleResize = () => {
+      // If user physically rotates device to landscape, stop CSS 90deg rotation so it doesn't double-rotate
+      if (window.innerWidth >= window.innerHeight) {
+        setIsRotatedLandscape(false);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, [isRotatedLandscape]);
 
   useEffect(() => {
     if (!isFallbackFullscreen) return;
@@ -220,6 +249,7 @@ export function CadenceVideoPlayer({
       if (e.key === 'Escape') {
         e.stopImmediatePropagation();
         setIsFallbackFullscreen(false);
+        setIsRotatedLandscape(false);
       }
     };
     window.addEventListener('keydown', handleEsc, true);
@@ -654,23 +684,83 @@ export function CadenceVideoPlayer({
   const handleToggleFullscreen = useCallback(async () => {
     const el = stageRef.current;
     if (!el) return;
-    if (isFallbackFullscreen) {
+
+    const unlockOrientation = () => {
+      try {
+        (
+          screen.orientation as ScreenOrientation & { unlock?: () => void }
+        )?.unlock?.();
+      } catch {
+        // Ignore if unsupported
+      }
+    };
+
+    if (isFallbackFullscreen || document.fullscreenElement === el) {
       setIsFallbackFullscreen(false);
+      setIsRotatedLandscape(false);
+      unlockOrientation();
+      if (document.fullscreenElement === el) {
+        try {
+          await document.exitFullscreen();
+        } catch {
+          // Ignore exit errors
+        }
+      }
       return;
     }
-    try {
-      if (document.fullscreenElement === el) {
-        await document.exitFullscreen();
-      } else if (typeof el.requestFullscreen === 'function') {
+
+    const isMobileDevice =
+      window.matchMedia('(pointer: coarse)').matches ||
+      /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+      window.innerWidth < 768;
+
+    let enteredNative = false;
+    if (typeof el.requestFullscreen === 'function') {
+      try {
         await el.requestFullscreen();
-      } else {
-        setIsFallbackFullscreen(true);
+        enteredNative = document.fullscreenElement === el;
+      } catch {
+        enteredNative = false;
       }
-    } catch {
-      // Fallback theater fullscreen for iOS Safari & embedded mobile browsers
-      setIsFallbackFullscreen((prev) => !prev);
+    }
+
+    if (!enteredNative) {
+      setIsFallbackFullscreen(true);
+    }
+
+    if (isMobileDevice) {
+      let lockedLandscape = false;
+      if (enteredNative) {
+        try {
+          const orientation = screen.orientation as ScreenOrientation & {
+            lock?: (
+              mode: 'landscape' | 'landscape-primary' | 'portrait'
+            ) => Promise<void>;
+          };
+          if (orientation && typeof orientation.lock === 'function') {
+            await orientation.lock('landscape');
+            lockedLandscape = true;
+          }
+        } catch {
+          lockedLandscape = false;
+        }
+      }
+
+      // If OS orientation lock is unavailable or rejected (e.g., iOS Safari or restricted webviews)
+      // while the phone is in portrait, rotate the fullscreen stage 90deg into landscape.
+      if (!lockedLandscape && window.innerHeight > window.innerWidth) {
+        setIsRotatedLandscape(true);
+      }
     }
   }, [isFallbackFullscreen]);
+
+  const computeRotatedScrubTime = (clientY: number): number => {
+    const track = scrubTrackRef.current;
+    if (!track || duration <= 0) return currentTime;
+    const rect = track.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientY - rect.top) / Math.max(1, rect.height)));
+    return ratio * duration;
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const tag = (e.target as HTMLElement)?.tagName;
@@ -702,9 +792,10 @@ export function CadenceVideoPlayer({
         break;
       case 'escape':
         setShowQualityMenu(false);
-        if (isFallbackFullscreen) {
+        if (isFallbackFullscreen || isRotatedLandscape) {
           e.stopPropagation();
           setIsFallbackFullscreen(false);
+          setIsRotatedLandscape(false);
         }
         break;
     }
@@ -740,10 +831,24 @@ export function CadenceVideoPlayer({
           : 'relative w-full aspect-video shrink-0'
       }`}
     >
+      {/* Orientation wrapper: keeps DOM tree identical across normal, OS landscape, and CSS-rotated landscape */}
+      <div
+        className={
+          isFullscreen
+            ? isRotatedLandscape
+              ? 'w-[100dvh] h-[100vw] rotate-90 origin-center flex items-center justify-center shrink-0'
+              : 'w-full h-full flex items-center justify-center'
+            : 'w-full h-full'
+        }
+      >
       {/* Aspect-locked 16:9 canvas with vertical overscan cropping YouTube's top channel header & bottom watermark */}
       <div
         className={`relative overflow-hidden bg-slate-950 ${
-          isFullscreen ? 'w-full max-w-[177.78dvh] max-h-full aspect-video' : 'w-full h-full'
+          isFullscreen
+            ? isRotatedLandscape
+              ? 'w-full max-w-[177.78vw] max-h-full aspect-video'
+              : 'w-full max-w-[177.78dvh] max-h-full aspect-video'
+            : 'w-full h-full'
         }`}
       >
         <div
@@ -899,7 +1004,33 @@ export function CadenceVideoPlayer({
             }`}
           >
             {/* Interactive Scrub Bar */}
-            <div className="relative h-7 sm:h-5 flex items-center mb-1.5 sm:mb-2 group touch-none">
+            <div
+              ref={scrubTrackRef}
+              onPointerDown={(e) => {
+                if (!isRotatedLandscape) return;
+                e.preventDefault();
+                e.currentTarget.setPointerCapture(e.pointerId);
+                setIsSeeking(true);
+                const t = computeRotatedScrubTime(e.clientY);
+                setCurrentTime(t);
+                scheduleHideControls();
+              }}
+              onPointerMove={(e) => {
+                if (!isRotatedLandscape || !isSeeking) return;
+                const t = computeRotatedScrubTime(e.clientY);
+                setCurrentTime(t);
+                scheduleHideControls();
+              }}
+              onPointerUp={(e) => {
+                if (!isRotatedLandscape) return;
+                const t = computeRotatedScrubTime(e.clientY);
+                handleScrubCommit(t);
+              }}
+              onPointerCancel={() => {
+                if (isRotatedLandscape) setIsSeeking(false);
+              }}
+              className="relative h-7 sm:h-5 flex items-center mb-1.5 sm:mb-2 group touch-none"
+            >
               <div className="w-full h-1 bg-white/25 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-white/35 transition-[width] duration-150"
@@ -926,7 +1057,9 @@ export function CadenceVideoPlayer({
                 onTouchEnd={(e) =>
                   handleScrubCommit(Number((e.target as HTMLInputElement).value))
                 }
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                className={`absolute inset-0 w-full h-full opacity-0 cursor-pointer ${
+                  isRotatedLandscape ? 'pointer-events-none' : ''
+                }`}
               />
             </div>
 
@@ -1102,6 +1235,7 @@ export function CadenceVideoPlayer({
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );
