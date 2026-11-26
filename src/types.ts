@@ -120,6 +120,8 @@ export interface Batch {
   description: string;
   priceUsd: number;
   coverImage: string;
+  paymentQrUrl?: string;
+  paymentUpiId?: string;
   lectureCount: number;
   isPublished: boolean;
   createdBy: string;

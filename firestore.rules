@@ -118,7 +118,7 @@ service cloud.firestore {
 
     function isValidBatch(data) {
       return data.keys().hasAll(['title', 'subjectTag', 'instructor', 'description', 'priceUsd', 'coverImage', 'lectureCount', 'isPublished', 'createdBy', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['title', 'subjectTag', 'instructor', 'description', 'priceUsd', 'coverImage', 'lectureCount', 'isPublished', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['title', 'subjectTag', 'instructor', 'description', 'priceUsd', 'coverImage', 'paymentQrUrl', 'paymentUpiId', 'lectureCount', 'isPublished', 'createdBy', 'createdAt', 'updatedAt']) &&
         data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
         data.subjectTag is string && data.subjectTag.size() >= 1 && data.subjectTag.size() <= 40 &&
         data.instructor is string && data.instructor.size() >= 1 && data.instructor.size() <= 80 &&
@@ -128,6 +128,18 @@ service cloud.firestore {
         data.coverImage.size() >= 1 &&
         data.coverImage.size() <= 150000 &&
         data.coverImage.matches('^(https://[^\\s]+|/src/assets/[^\\s]+|data:image/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+)$') &&
+        (!('paymentQrUrl' in data) || (
+          data.paymentQrUrl is string &&
+          data.paymentQrUrl.size() <= 150000 &&
+          (
+            data.paymentQrUrl == '' ||
+            data.paymentQrUrl.matches('^(https://[^\\s]+|data:image/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+)$')
+          )
+        )) &&
+        (!('paymentUpiId' in data) || (
+          data.paymentUpiId is string &&
+          data.paymentUpiId.size() <= 120
+        )) &&
         data.lectureCount is number && data.lectureCount >= 0 && data.lectureCount <= 500 &&
         data.isPublished is bool &&
         isValidId(data.createdBy) &&
@@ -334,7 +346,7 @@ service cloud.firestore {
         incoming().createdBy == existing().createdBy &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['title', 'subjectTag', 'instructor', 'description', 'priceUsd', 'coverImage', 'lectureCount', 'isPublished', 'updatedAt']);
+        incoming().diff(existing()).affectedKeys().hasOnly(['title', 'subjectTag', 'instructor', 'description', 'priceUsd', 'coverImage', 'paymentQrUrl', 'paymentUpiId', 'lectureCount', 'isPublished', 'updatedAt']);
       allow delete: if isAdmin() && isValidId(batchId);
 
       // Subcollection: /batches/{batchId}/lectures/{lectureId}

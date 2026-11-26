@@ -50,6 +50,7 @@ function CadenceApp() {
   const [isVerifiedUser, setIsVerifiedUser] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showSignInModal, setShowSignInModal] = useState(false);
+  const [pendingEnrollBatchId, setPendingEnrollBatchId] = useState<string | null>(null);
   const [verificationNotice, setVerificationNotice] = useState<string | null>(null);
   const [verifyingAction, setVerifyingAction] = useState(false);
 
@@ -272,6 +273,7 @@ function CadenceApp() {
 
   async function handleSignOut() {
     await signOut(auth);
+    setPendingEnrollBatchId(null);
     if (activeTab === 'admin') setActiveTab('batches');
   }
 
@@ -411,7 +413,14 @@ function CadenceApp() {
           <LectureBatchesView
             userId={user && isVerifiedUser ? user.uid : null}
             isAdmin={isAdmin}
-            onRequireSignIn={() => setShowSignInModal(true)}
+            onRequireSignIn={(batchId) => {
+              if (batchId) {
+                setPendingEnrollBatchId(batchId);
+              }
+              setShowSignInModal(true);
+            }}
+            pendingEnrollBatchId={pendingEnrollBatchId}
+            onClearPendingEnroll={() => setPendingEnrollBatchId(null)}
             batches={batches}
             purchases={purchases}
             paymentMethods={paymentMethods}

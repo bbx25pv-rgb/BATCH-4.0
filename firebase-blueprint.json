@@ -246,6 +246,16 @@
           "minLength": 1,
           "maxLength": 150000
         },
+        "paymentQrUrl": {
+          "type": "string",
+          "maxLength": 150000,
+          "description": "Course-specific payment QR code image URL or base64 data URL."
+        },
+        "paymentUpiId": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Optional course-specific UPI ID (VPA)."
+        },
         "lectureCount": {
           "type": "number"
         },

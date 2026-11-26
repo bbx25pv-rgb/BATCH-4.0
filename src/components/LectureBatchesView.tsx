@@ -44,7 +44,9 @@ type DisplayLecture = LecturePreview & Partial<Pick<Lecture, 'youtubeUrl' | 'you
 interface LectureBatchesViewProps {
   userId: string | null;
   isAdmin: boolean;
-  onRequireSignIn: () => void;
+  onRequireSignIn: (batchId?: string) => void;
+  pendingEnrollBatchId?: string | null;
+  onClearPendingEnroll?: () => void;
   batches: Batch[];
   purchases: BatchPurchase[];
   paymentMethods: PaymentMethod[];
@@ -108,6 +110,8 @@ export function LectureBatchesView({
   userId,
   isAdmin,
   onRequireSignIn,
+  pendingEnrollBatchId,
+  onClearPendingEnroll,
   batches,
   purchases,
   paymentMethods,
@@ -127,27 +131,61 @@ export function LectureBatchesView({
     [paymentMethods]
   );
 
+  const courseSpecificPaymentOption = useMemo<PaymentMethod | null>(() => {
+    if (!checkoutBatch) return null;
+    const qrUrl = checkoutBatch.paymentQrUrl?.trim() || '';
+    const upiId = checkoutBatch.paymentUpiId?.trim() || '';
+    if (!qrUrl && !upiId) return null;
+    return {
+      id: '__course_qr__',
+      label: 'Course Payment QR',
+      type: 'upi',
+      isActive: true,
+      upiId,
+      payeeName: checkoutBatch.title,
+      qrImageUrl: qrUrl,
+      bankName: '',
+      accountNumber: '',
+      ifscCode: '',
+      paymentLinkUrl: '',
+      instructions: `Scan the QR code for ${checkoutBatch.title} to pay ${formatInr(
+        checkoutBatch.priceUsd
+      )} and enter your UTR / transaction ID below.`,
+      createdBy: checkoutBatch.createdBy,
+      createdAt: checkoutBatch.createdAt,
+      updatedAt: checkoutBatch.updatedAt,
+    };
+  }, [checkoutBatch]);
+
+  const checkoutPaymentOptions = useMemo(() => {
+    if (courseSpecificPaymentOption) {
+      return [courseSpecificPaymentOption, ...activePaymentMethods];
+    }
+    return activePaymentMethods;
+  }, [courseSpecificPaymentOption, activePaymentMethods]);
+
   const selectedPaymentMethod = useMemo(
     () =>
-      activePaymentMethods.find((m) => m.id === selectedPaymentMethodId) ??
-      activePaymentMethods[0] ??
+      checkoutPaymentOptions.find((m) => m.id === selectedPaymentMethodId) ??
+      checkoutPaymentOptions[0] ??
       null,
-    [activePaymentMethods, selectedPaymentMethodId]
+    [checkoutPaymentOptions, selectedPaymentMethodId]
   );
 
   useEffect(() => {
     if (!checkoutBatch) {
+      setSelectedPaymentMethodId('');
       setPaymentReference('');
       setCopiedField(null);
       return;
     }
     if (
-      activePaymentMethods.length > 0 &&
-      !activePaymentMethods.some((m) => m.id === selectedPaymentMethodId)
+      checkoutPaymentOptions.length > 0 &&
+      !checkoutPaymentOptions.some((m) => m.id === selectedPaymentMethodId)
     ) {
-      setSelectedPaymentMethodId(activePaymentMethods[0].id);
+      setSelectedPaymentMethodId(checkoutPaymentOptions[0].id);
     }
-  }, [checkoutBatch, activePaymentMethods, selectedPaymentMethodId]);
+  }, [checkoutBatch, checkoutPaymentOptions, selectedPaymentMethodId]);
 
   async function handleCopyValue(key: string, value: string) {
     try {
@@ -208,6 +246,21 @@ export function LectureBatchesView({
       setPlayTrigger(0);
     }
   }, [userId]);
+
+  // If a visitor clicked a batch to enroll before creating an account, open that course checkout right after sign-in
+  useEffect(() => {
+    if (!userId || !pendingEnrollBatchId || batches.length === 0) return;
+    const targetBatch = batches.find((b) => b.id === pendingEnrollBatchId);
+    onClearPendingEnroll?.();
+    if (!targetBatch) return;
+
+    if (isAdmin || activePurchasedBatchIds.has(targetBatch.id)) {
+      setSelectedBatchId(targetBatch.id);
+    } else {
+      setPurchaseError(null);
+      setCheckoutBatch(targetBatch);
+    }
+  }, [userId, pendingEnrollBatchId, batches, isAdmin, activePurchasedBatchIds, onClearPendingEnroll]);
 
   useEffect(() => {
     if (userId && canAccessSelectedBatch) {
@@ -328,8 +381,14 @@ export function LectureBatchesView({
       const paymentDetails =
         checkoutBatch.priceUsd > 0 && selectedPaymentMethod
           ? {
-              paymentMethodId: selectedPaymentMethod.id,
-              paymentMethodLabel: selectedPaymentMethod.label,
+              paymentMethodId:
+                selectedPaymentMethod.id === '__course_qr__'
+                  ? `course_qr_${checkoutBatch.id}`
+                  : selectedPaymentMethod.id,
+              paymentMethodLabel:
+                selectedPaymentMethod.id === '__course_qr__'
+                  ? `${checkoutBatch.title} QR`
+                  : selectedPaymentMethod.label,
               paymentReference,
             }
           : undefined;
@@ -727,7 +786,7 @@ export function LectureBatchesView({
         ) : (
           <button
             type="button"
-            onClick={onRequireSignIn}
+            onClick={() => onRequireSignIn()}
             className="min-h-[40px] px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 self-start"
           >
             Sign in to Enroll
@@ -768,7 +827,7 @@ export function LectureBatchesView({
 
             const handleDirectEnroll = () => {
               if (!userId) {
-                onRequireSignIn();
+                onRequireSignIn(batch.id);
                 return;
               }
               setPurchaseError(null);
@@ -784,7 +843,7 @@ export function LectureBatchesView({
                   type="button"
                   onClick={() => {
                     if (!userId) {
-                      onRequireSignIn();
+                      onRequireSignIn(batch.id);
                       return;
                     }
                     setSelectedBatchId(batch.id);
@@ -911,39 +970,45 @@ export function LectureBatchesView({
                 </div>
               </div>
 
-              {checkoutBatch.priceUsd > 0 && activePaymentMethods.length > 0 && (
+              {checkoutBatch.priceUsd > 0 && checkoutPaymentOptions.length > 0 && (
                 <div className="pt-3 border-t border-slate-100 space-y-3">
                   <p className="text-xs font-semibold text-slate-900">
-                    Select Payment Method
+                    {checkoutPaymentOptions.length > 1
+                      ? 'Select Payment Method'
+                      : selectedPaymentMethod?.id === '__course_qr__'
+                      ? `Scan QR to Pay for ${checkoutBatch.title}`
+                      : 'Payment Details'}
                   </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {activePaymentMethods.map((method) => {
-                      const active = selectedPaymentMethod?.id === method.id;
-                      return (
-                        <button
-                          key={method.id}
-                          type="button"
-                          onClick={() => setSelectedPaymentMethodId(method.id)}
-                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-xs font-medium transition-colors ${
-                            active
-                              ? 'border-blue-600 bg-blue-50 text-blue-900'
-                              : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                          }`}
-                        >
-                          {method.type === 'upi' ? (
-                            <QrCode className="w-3.5 h-3.5 shrink-0 text-blue-600" />
-                          ) : method.type === 'bank' ? (
-                            <Building2 className="w-3.5 h-3.5 shrink-0 text-blue-600" />
-                          ) : method.type === 'gateway' ? (
-                            <Globe className="w-3.5 h-3.5 shrink-0 text-blue-600" />
-                          ) : (
-                            <Banknote className="w-3.5 h-3.5 shrink-0 text-blue-600" />
-                          )}
-                          <span className="truncate">{method.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {checkoutPaymentOptions.length > 1 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {checkoutPaymentOptions.map((method) => {
+                        const active = selectedPaymentMethod?.id === method.id;
+                        return (
+                          <button
+                            key={method.id}
+                            type="button"
+                            onClick={() => setSelectedPaymentMethodId(method.id)}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-xs font-medium transition-colors ${
+                              active
+                                ? 'border-blue-600 bg-blue-50 text-blue-900'
+                                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            {method.type === 'upi' ? (
+                              <QrCode className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+                            ) : method.type === 'bank' ? (
+                              <Building2 className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+                            ) : method.type === 'gateway' ? (
+                              <Globe className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+                            ) : (
+                              <Banknote className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+                            )}
+                            <span className="truncate">{method.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {selectedPaymentMethod && (
                     <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2.5 text-xs">

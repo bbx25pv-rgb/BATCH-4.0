@@ -385,6 +385,8 @@ export async function createBatch(
     description: string;
     priceUsd: number;
     coverImage: string;
+    paymentQrUrl?: string;
+    paymentUpiId?: string;
     isPublished: boolean;
   }
 ): Promise<string> {
@@ -392,6 +394,11 @@ export async function createBatch(
   if (!cleanCover || !isSafeThumbnailUrl(cleanCover)) {
     throw new Error('Cover artwork must be a studio preset, an https:// image URL, or an uploaded image.');
   }
+  const cleanQr = (input.paymentQrUrl ?? '').trim();
+  if (cleanQr && (!isSafeThumbnailUrl(cleanQr) || cleanQr.startsWith('/src/assets/'))) {
+    throw new Error('Course payment QR must be an https:// URL or an uploaded image.');
+  }
+  const cleanUpi = sanitizeString(input.paymentUpiId || '', VALIDATION_LIMITS.upiIdMax);
 
   const id = makeDocId('batch');
   const path = `batches/${id}`;
@@ -405,6 +412,8 @@ export async function createBatch(
       description: sanitizeString(input.description, VALIDATION_LIMITS.batchDescriptionMax),
       priceUsd: safePrice,
       coverImage: sanitizeString(cleanCover, VALIDATION_LIMITS.coverImageMax),
+      paymentQrUrl: cleanQr,
+      paymentUpiId: cleanUpi,
       lectureCount: 0,
       isPublished: input.isPublished,
       createdBy: adminUid,
@@ -426,6 +435,8 @@ export async function updateBatch(
     description: string;
     priceUsd: number;
     coverImage: string;
+    paymentQrUrl?: string;
+    paymentUpiId?: string;
     isPublished: boolean;
   }
 ): Promise<void> {
@@ -433,6 +444,11 @@ export async function updateBatch(
   if (!cleanCover || !isSafeThumbnailUrl(cleanCover)) {
     throw new Error('Cover artwork must be a studio preset, an https:// image URL, or an uploaded image.');
   }
+  const cleanQr = (input.paymentQrUrl ?? '').trim();
+  if (cleanQr && (!isSafeThumbnailUrl(cleanQr) || cleanQr.startsWith('/src/assets/'))) {
+    throw new Error('Course payment QR must be an https:// URL or an uploaded image.');
+  }
+  const cleanUpi = sanitizeString(input.paymentUpiId || '', VALIDATION_LIMITS.upiIdMax);
 
   const path = `batches/${batchId}`;
   const rawPrice = Number(input.priceUsd);
@@ -445,7 +461,31 @@ export async function updateBatch(
       description: sanitizeString(input.description, VALIDATION_LIMITS.batchDescriptionMax),
       priceUsd: safePrice,
       coverImage: sanitizeString(cleanCover, VALIDATION_LIMITS.coverImageMax),
+      paymentQrUrl: cleanQr,
+      paymentUpiId: cleanUpi,
       isPublished: input.isPublished,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function updateBatchPaymentQr(
+  batchId: string,
+  paymentQrUrl: string,
+  paymentUpiId: string
+): Promise<void> {
+  const cleanQr = paymentQrUrl.trim();
+  if (cleanQr && (!isSafeThumbnailUrl(cleanQr) || cleanQr.startsWith('/src/assets/'))) {
+    throw new Error('Course payment QR must be an https:// URL or an uploaded image.');
+  }
+  const cleanUpi = sanitizeString(paymentUpiId || '', VALIDATION_LIMITS.upiIdMax);
+  const path = `batches/${batchId}`;
+  try {
+    await updateDoc(doc(db, 'batches', batchId), {
+      paymentQrUrl: cleanQr,
+      paymentUpiId: cleanUpi,
       updatedAt: serverTimestamp(),
     });
   } catch (error) {

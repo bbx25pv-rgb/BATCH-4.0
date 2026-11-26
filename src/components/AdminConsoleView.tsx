@@ -48,6 +48,7 @@ import {
   syncBatchSyllabusPreviews,
   togglePaymentMethodActive,
   updateBatch,
+  updateBatchPaymentQr,
   updateLectureThumbnail,
   updatePaymentMethod,
   updateUnlistedLecture,
@@ -119,6 +120,8 @@ export function AdminConsoleView({
   const [description, setDescription] = useState('');
   const [priceUsd, setPriceUsd] = useState(999);
   const [coverImage, setCoverImage] = useState<string>(BATCH_COVER_IMAGES[0].path);
+  const [batchPaymentQr, setBatchPaymentQr] = useState('');
+  const [batchPaymentUpi, setBatchPaymentUpi] = useState('');
   const [isPublished, setIsPublished] = useState(true);
   const [savingBatch, setSavingBatch] = useState(false);
   const [seeding, setSeeding] = useState(false);
@@ -131,8 +134,16 @@ export function AdminConsoleView({
   const [editBatchDescription, setEditBatchDescription] = useState('');
   const [editBatchPrice, setEditBatchPrice] = useState(999);
   const [editBatchCover, setEditBatchCover] = useState<string>(BATCH_COVER_IMAGES[0].path);
+  const [editBatchPaymentQr, setEditBatchPaymentQr] = useState('');
+  const [editBatchPaymentUpi, setEditBatchPaymentUpi] = useState('');
   const [editBatchPublished, setEditBatchPublished] = useState(true);
   const [savingBatchEdit, setSavingBatchEdit] = useState(false);
+
+  // Quick per-course QR editor state
+  const [editingQrBatchId, setEditingQrBatchId] = useState<string | null>(null);
+  const [quickQrUrl, setQuickQrUrl] = useState('');
+  const [quickUpiId, setQuickUpiId] = useState('');
+  const [savingBatchQr, setSavingBatchQr] = useState(false);
 
   // Lecture creation state (Admin only adds YouTube unlisted links)
   const [lecTitle, setLecTitle] = useState('');
@@ -295,6 +306,8 @@ export function AdminConsoleView({
         description,
         priceUsd,
         coverImage,
+        paymentQrUrl: batchPaymentQr,
+        paymentUpiId: batchPaymentUpi,
         isPublished,
       });
       setSelectedBatchId(id);
@@ -302,6 +315,8 @@ export function AdminConsoleView({
       setSubjectTag('');
       setInstructor('');
       setDescription('');
+      setBatchPaymentQr('');
+      setBatchPaymentUpi('');
       setShowBatchForm(false);
       setFeedback('New academic batch created.');
     } catch (err) {
@@ -322,6 +337,8 @@ export function AdminConsoleView({
         description: batch.description,
         priceUsd: batch.priceUsd,
         coverImage: batch.coverImage,
+        paymentQrUrl: batch.paymentQrUrl ?? '',
+        paymentUpiId: batch.paymentUpiId ?? '',
         isPublished: !batch.isPublished,
       });
     } catch (err) {
@@ -330,6 +347,7 @@ export function AdminConsoleView({
   }
 
   function startEditingBatch(batch: Batch) {
+    setEditingQrBatchId(null);
     if (editingBatchId === batch.id) {
       setEditingBatchId(null);
       return;
@@ -341,6 +359,8 @@ export function AdminConsoleView({
     setEditBatchDescription(batch.description);
     setEditBatchPrice(batch.priceUsd);
     setEditBatchCover(batch.coverImage);
+    setEditBatchPaymentQr(batch.paymentQrUrl ?? '');
+    setEditBatchPaymentUpi(batch.paymentUpiId ?? '');
     setEditBatchPublished(batch.isPublished);
     setErrorMsg(null);
     setFeedback(null);
@@ -361,6 +381,8 @@ export function AdminConsoleView({
         description: editBatchDescription,
         priceUsd: editBatchPrice,
         coverImage: editBatchCover,
+        paymentQrUrl: editBatchPaymentQr,
+        paymentUpiId: editBatchPaymentUpi,
         isPublished: editBatchPublished,
       });
       setFeedback(`Updated batch "${editBatchTitle.trim()}".`);
@@ -369,6 +391,36 @@ export function AdminConsoleView({
       setErrorMsg(err instanceof Error ? err.message : 'Unable to update batch.');
     } finally {
       setSavingBatchEdit(false);
+    }
+  }
+
+  function startEditingBatchQr(batch: Batch) {
+    setEditingBatchId(null);
+    if (editingQrBatchId === batch.id) {
+      setEditingQrBatchId(null);
+      return;
+    }
+    setEditingQrBatchId(batch.id);
+    setQuickQrUrl(batch.paymentQrUrl ?? '');
+    setQuickUpiId(batch.paymentUpiId ?? '');
+    setErrorMsg(null);
+    setFeedback(null);
+  }
+
+  async function handleSaveQuickBatchQr(e: React.FormEvent, batch: Batch) {
+    e.preventDefault();
+    setErrorMsg(null);
+    setFeedback(null);
+    setSavingBatchQr(true);
+    try {
+      if (!(await ensureVerifiedAdminSession())) return;
+      await updateBatchPaymentQr(batch.id, quickQrUrl, quickUpiId);
+      setFeedback(`Saved payment QR for "${batch.title}".`);
+      setEditingQrBatchId(null);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Unable to save course payment QR.');
+    } finally {
+      setSavingBatchQr(false);
     }
   }
 
@@ -962,6 +1014,85 @@ export function AdminConsoleView({
               placeholder="Concise syllabus overview for students..."
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
             />
+          </div>
+
+          {/* Course-specific Payment QR & UPI */}
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-800">
+                <QrCode className="w-3.5 h-3.5 text-blue-600" />
+                <span>Course Payment QR Code & UPI (optional)</span>
+              </span>
+              <div className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-800 text-xs font-medium rounded-md cursor-pointer whitespace-nowrap">
+                  <Upload className="w-3 h-3" />
+                  <span>Upload QR</span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      void handleQrFileUpload(file, setBatchPaymentQr);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+                {batchPaymentQr && (
+                  <button
+                    type="button"
+                    onClick={() => setBatchPaymentQr('')}
+                    className="text-xs text-slate-500 hover:text-rose-700"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
+              <div>
+                <label htmlFor="b-pay-upi" className="block text-[11px] font-medium text-slate-700 mb-1">
+                  Course UPI ID (optional)
+                </label>
+                <input
+                  id="b-pay-upi"
+                  type="text"
+                  maxLength={VALIDATION_LIMITS.upiIdMax}
+                  value={batchPaymentUpi}
+                  onChange={(e) => setBatchPaymentUpi(e.target.value)}
+                  placeholder="course-name@okicici"
+                  className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-md text-sm font-mono"
+                />
+              </div>
+              <div className="flex items-center gap-2.5">
+                <div className="flex-1">
+                  <label htmlFor="b-pay-qr" className="block text-[11px] font-medium text-slate-700 mb-1">
+                    QR Image URL or Upload
+                  </label>
+                  <input
+                    id="b-pay-qr"
+                    type="text"
+                    value={
+                      batchPaymentQr.startsWith('data:image/')
+                        ? 'Uploaded course QR image'
+                        : batchPaymentQr
+                    }
+                    readOnly={batchPaymentQr.startsWith('data:image/')}
+                    onChange={(e) => setBatchPaymentQr(e.target.value)}
+                    placeholder="https://... or upload QR image"
+                    className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-md text-sm"
+                  />
+                </div>
+                {batchPaymentQr && (
+                  <img
+                    src={batchPaymentQr}
+                    alt="Course payment QR preview"
+                    className="w-12 h-12 rounded border border-slate-200 object-contain bg-white shrink-0"
+                  />
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="flex items-center justify-between pt-2">
@@ -1607,6 +1738,8 @@ export function AdminConsoleView({
               <div className="divide-y divide-slate-100">
                 {batches.map((b) => {
                   const isEditingThisBatch = editingBatchId === b.id;
+                  const isEditingThisQr = editingQrBatchId === b.id;
+                  const hasCourseQr = Boolean(b.paymentQrUrl || b.paymentUpiId);
                   return (
                     <div
                       key={b.id}
@@ -1620,9 +1753,24 @@ export function AdminConsoleView({
                           <p className="text-xs text-slate-500 font-mono tabular-nums">
                             {formatInr(b.priceUsd)} · {b.lectureCount} lectures ·{' '}
                             {b.isPublished ? 'Published' : 'Draft'}
+                            {hasCourseQr ? ' · QR Set' : ' · No QR'}
                           </p>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            aria-label={`Payment QR for ${b.title}`}
+                            title="Set course payment QR"
+                            onClick={() => startEditingBatchQr(b)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium border rounded-md transition-colors shrink-0 ${
+                              isEditingThisQr
+                                ? 'border-blue-300 bg-blue-50 text-blue-700'
+                                : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                            }`}
+                          >
+                            <QrCode className="w-3.5 h-3.5" />
+                            <span>QR</span>
+                          </button>
                           <button
                             type="button"
                             aria-label={`Edit ${b.title}`}
@@ -1655,6 +1803,120 @@ export function AdminConsoleView({
                           </button>
                         </div>
                       </div>
+
+                      {isEditingThisQr && (
+                        <form
+                          onSubmit={(e) => void handleSaveQuickBatchQr(e, b)}
+                          className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2.5"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-slate-800">
+                              Course Payment QR · {b.title}
+                            </p>
+                            <button
+                              type="button"
+                              aria-label="Close course QR editor"
+                              onClick={() => setEditingQrBatchId(null)}
+                              className="p-1 text-slate-400 hover:text-slate-700 rounded"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div>
+                            <label
+                              htmlFor={`quick-qr-upi-${b.id}`}
+                              className="block text-[11px] font-medium text-slate-700 mb-1"
+                            >
+                              Course UPI ID (optional)
+                            </label>
+                            <input
+                              id={`quick-qr-upi-${b.id}`}
+                              type="text"
+                              maxLength={VALIDATION_LIMITS.upiIdMax}
+                              value={quickUpiId}
+                              onChange={(e) => setQuickUpiId(e.target.value)}
+                              placeholder="course@okicici"
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs font-mono"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <label
+                                htmlFor={`quick-qr-url-${b.id}`}
+                                className="block text-[11px] font-medium text-slate-700"
+                              >
+                                Course QR Code Image
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <label className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-800 text-[11px] font-medium rounded cursor-pointer">
+                                  <Upload className="w-3 h-3" />
+                                  <span>Upload QR</span>
+                                  <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      void handleQrFileUpload(file, setQuickQrUrl);
+                                      e.target.value = '';
+                                    }}
+                                  />
+                                </label>
+                                {quickQrUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setQuickQrUrl('')}
+                                    className="text-[11px] text-slate-500 hover:text-rose-700"
+                                  >
+                                    Clear
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                              <input
+                                id={`quick-qr-url-${b.id}`}
+                                type="text"
+                                value={
+                                  quickQrUrl.startsWith('data:image/')
+                                    ? 'Uploaded course QR image'
+                                    : quickQrUrl
+                                }
+                                readOnly={quickQrUrl.startsWith('data:image/')}
+                                onChange={(e) => setQuickQrUrl(e.target.value)}
+                                placeholder="https://... or upload QR image"
+                                className="flex-1 px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                              />
+                              {quickQrUrl && (
+                                <img
+                                  src={quickQrUrl}
+                                  alt={`${b.title} QR preview`}
+                                  className="w-12 h-12 rounded border border-slate-200 object-contain bg-white shrink-0"
+                                />
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-end gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setEditingQrBatchId(null)}
+                              className="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-md"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={savingBatchQr}
+                              className="px-3.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md disabled:opacity-50"
+                            >
+                              {savingBatchQr ? 'Saving...' : 'Save Course QR'}
+                            </button>
+                          </div>
+                        </form>
+                      )}
 
                       {isEditingThisBatch && (
                         <form
@@ -1853,6 +2115,70 @@ export function AdminConsoleView({
                               onChange={(e) => setEditBatchDescription(e.target.value)}
                               className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
                             />
+                          </div>
+
+                          <div className="space-y-2 pt-1 border-t border-slate-200/70">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-[11px] font-medium text-slate-700">
+                                Course Payment QR & UPI (optional)
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <label className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-800 text-[11px] font-medium rounded cursor-pointer">
+                                  <Upload className="w-3 h-3" />
+                                  <span>Upload QR</span>
+                                  <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      void handleQrFileUpload(file, setEditBatchPaymentQr);
+                                      e.target.value = '';
+                                    }}
+                                  />
+                                </label>
+                                {editBatchPaymentQr && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditBatchPaymentQr('')}
+                                    className="text-[11px] text-slate-500 hover:text-rose-700"
+                                  >
+                                    Clear
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <input
+                              type="text"
+                              aria-label="Course UPI ID"
+                              maxLength={VALIDATION_LIMITS.upiIdMax}
+                              value={editBatchPaymentUpi}
+                              onChange={(e) => setEditBatchPaymentUpi(e.target.value)}
+                              placeholder="Course UPI ID (optional)"
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs font-mono"
+                            />
+                            <div className="flex items-center gap-2.5">
+                              <input
+                                type="text"
+                                aria-label="Course QR Image URL"
+                                value={
+                                  editBatchPaymentQr.startsWith('data:image/')
+                                    ? 'Uploaded course QR image'
+                                    : editBatchPaymentQr
+                                }
+                                readOnly={editBatchPaymentQr.startsWith('data:image/')}
+                                onChange={(e) => setEditBatchPaymentQr(e.target.value)}
+                                placeholder="QR Image URL or upload QR"
+                                className="flex-1 px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                              />
+                              {editBatchPaymentQr && (
+                                <img
+                                  src={editBatchPaymentQr}
+                                  alt="Edited course QR preview"
+                                  className="w-11 h-11 rounded border border-slate-200 object-contain bg-white shrink-0"
+                                />
+                              )}
+                            </div>
                           </div>
 
                           <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
