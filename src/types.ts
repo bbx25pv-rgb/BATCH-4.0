@@ -5,6 +5,7 @@ export type SessionMode = 'pomodoro' | 'manual' | 'lecture';
 export type HabitCategory = 'focus' | 'practice' | 'reading' | 'revision';
 export type HabitUnit = 'minutes' | 'sessions' | 'pages';
 export type PurchaseStatus = 'active' | 'revoked';
+export type PaymentMethodType = 'upi' | 'bank' | 'gateway' | 'manual';
 
 export const ADMIN_BOOTSTRAP_EMAIL = 'preetverma.bbx@gmail.com';
 
@@ -30,6 +31,15 @@ export const VALIDATION_LIMITS = {
   youtubeUrlMax: 300,
   lectureSummaryMax: 600,
   thumbnailUrlMax: 150000,
+  paymentLabelMax: 80,
+  upiIdMax: 120,
+  payeeNameMax: 100,
+  bankNameMax: 100,
+  accountNumberMax: 40,
+  ifscCodeMax: 20,
+  paymentLinkUrlMax: 300,
+  paymentInstructionsMax: 400,
+  paymentReferenceMax: 120,
 } as const;
 
 export const BATCH_COVER_IMAGES = [
@@ -155,7 +165,28 @@ export interface BatchPurchase {
   amountPaid: number;
   status: PurchaseStatus;
   grantedBy: string;
+  paymentMethodId?: string;
+  paymentMethodLabel?: string;
+  paymentReference?: string;
   purchasedAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface PaymentMethod {
+  id: string;
+  label: string;
+  type: PaymentMethodType;
+  isActive: boolean;
+  upiId: string;
+  payeeName: string;
+  qrImageUrl: string;
+  bankName: string;
+  accountNumber: string;
+  ifscCode: string;
+  paymentLinkUrl: string;
+  instructions: string;
+  createdBy: string;
+  createdAt: Timestamp;
   updatedAt: Timestamp;
 }
 

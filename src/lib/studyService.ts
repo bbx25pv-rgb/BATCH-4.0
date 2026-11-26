@@ -20,6 +20,7 @@ import {
   HabitCategory,
   HabitUnit,
   Lecture,
+  PaymentMethodType,
   PurchaseStatus,
   SessionMode,
   Subject,
@@ -28,6 +29,7 @@ import {
 } from '@/src/types';
 import {
   getTodayDateString,
+  isSafeHttpsUrl,
   isSafeThumbnailUrl,
   parseYouTubeVideoId,
   sanitizeString,
@@ -680,7 +682,15 @@ export async function syncBatchSyllabusPreviews(
   }
 }
 
-export async function purchaseBatch(userId: string, batch: Batch): Promise<void> {
+export async function purchaseBatch(
+  userId: string,
+  batch: Batch,
+  paymentDetails?: {
+    paymentMethodId?: string;
+    paymentMethodLabel?: string;
+    paymentReference?: string;
+  }
+): Promise<void> {
   const purchaseId = `${userId}_${batch.id}`;
   const path = `purchases/${purchaseId}`;
   const ref = doc(db, 'purchases', purchaseId);
@@ -696,7 +706,7 @@ export async function purchaseBatch(userId: string, batch: Batch): Promise<void>
       );
     }
 
-    await setDoc(ref, {
+    const payload: Record<string, unknown> = {
       userId,
       batchId: batch.id,
       batchTitle: sanitizeString(batch.title, VALIDATION_LIMITS.batchTitleMax),
@@ -705,7 +715,25 @@ export async function purchaseBatch(userId: string, batch: Batch): Promise<void>
       grantedBy: userId,
       purchasedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-    });
+    };
+
+    if (paymentDetails?.paymentMethodId) {
+      payload.paymentMethodId = sanitizeString(paymentDetails.paymentMethodId, 128);
+    }
+    if (paymentDetails?.paymentMethodLabel) {
+      payload.paymentMethodLabel = sanitizeString(
+        paymentDetails.paymentMethodLabel,
+        VALIDATION_LIMITS.paymentLabelMax
+      );
+    }
+    if (paymentDetails?.paymentReference?.trim()) {
+      payload.paymentReference = sanitizeString(
+        paymentDetails.paymentReference,
+        VALIDATION_LIMITS.paymentReferenceMax
+      );
+    }
+
+    await setDoc(ref, payload);
   } catch (error) {
     if (error instanceof Error && error.message.includes('revoked by an administrator')) {
       throw error;
@@ -829,6 +857,146 @@ export async function seedStarterBatches(adminUid: string): Promise<void> {
     await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, 'batches');
+  }
+}
+
+export interface PaymentMethodInput {
+  label: string;
+  type: PaymentMethodType;
+  isActive: boolean;
+  upiId: string;
+  payeeName: string;
+  qrImageUrl: string;
+  bankName: string;
+  accountNumber: string;
+  ifscCode: string;
+  paymentLinkUrl: string;
+  instructions: string;
+}
+
+function normalizePaymentMethodInput(input: PaymentMethodInput) {
+  const label = sanitizeString(input.label, VALIDATION_LIMITS.paymentLabelMax);
+  if (!label) {
+    throw new Error('Enter a display label for this payment method.');
+  }
+
+  const upiId = sanitizeString(input.upiId || '', VALIDATION_LIMITS.upiIdMax);
+  const payeeName = sanitizeString(input.payeeName || '', VALIDATION_LIMITS.payeeNameMax);
+  const qrImageUrl = (input.qrImageUrl || '').trim();
+  const bankName = sanitizeString(input.bankName || '', VALIDATION_LIMITS.bankNameMax);
+  const accountNumber = sanitizeString(
+    input.accountNumber || '',
+    VALIDATION_LIMITS.accountNumberMax
+  );
+  const ifscCode = sanitizeString(input.ifscCode || '', VALIDATION_LIMITS.ifscCodeMax).toUpperCase();
+  const paymentLinkUrl = sanitizeString(
+    input.paymentLinkUrl || '',
+    VALIDATION_LIMITS.paymentLinkUrlMax
+  );
+  const instructions = sanitizeString(
+    input.instructions || '',
+    VALIDATION_LIMITS.paymentInstructionsMax
+  );
+
+  if (qrImageUrl && (!isSafeThumbnailUrl(qrImageUrl) || qrImageUrl.startsWith('/src/assets/'))) {
+    throw new Error('QR code image must be an https:// URL or an uploaded image.');
+  }
+
+  if (paymentLinkUrl && !isSafeHttpsUrl(paymentLinkUrl)) {
+    throw new Error('Payment link URL must start with https://.');
+  }
+
+  if (input.type === 'upi' && upiId.length < 3 && qrImageUrl.length < 10) {
+    throw new Error('Enter a valid UPI ID (e.g. name@okaxis) or upload a UPI QR code.');
+  }
+
+  if (
+    input.type === 'bank' &&
+    (bankName.length < 2 || accountNumber.length < 4 || ifscCode.length < 4)
+  ) {
+    throw new Error('Bank transfer requires Bank Name, Account Number, and IFSC Code.');
+  }
+
+  if (input.type === 'gateway' && paymentLinkUrl.length < 10) {
+    throw new Error('Enter a valid https:// payment link URL.');
+  }
+
+  if (input.type === 'manual' && instructions.length < 3) {
+    throw new Error('Enter instructions for offline / cash payment.');
+  }
+
+  return {
+    label,
+    type: input.type,
+    isActive: Boolean(input.isActive),
+    upiId,
+    payeeName,
+    qrImageUrl,
+    bankName,
+    accountNumber,
+    ifscCode,
+    paymentLinkUrl,
+    instructions,
+  };
+}
+
+export async function createPaymentMethod(
+  adminUid: string,
+  input: PaymentMethodInput
+): Promise<string> {
+  const id = makeDocId('pay');
+  const path = `paymentMethods/${id}`;
+  const normalized = normalizePaymentMethodInput(input);
+  try {
+    await setDoc(doc(db, 'paymentMethods', id), {
+      ...normalized,
+      createdBy: adminUid,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updatePaymentMethod(
+  methodId: string,
+  input: PaymentMethodInput
+): Promise<void> {
+  const path = `paymentMethods/${methodId}`;
+  const normalized = normalizePaymentMethodInput(input);
+  try {
+    await updateDoc(doc(db, 'paymentMethods', methodId), {
+      ...normalized,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function togglePaymentMethodActive(
+  methodId: string,
+  isActive: boolean
+): Promise<void> {
+  const path = `paymentMethods/${methodId}`;
+  try {
+    await updateDoc(doc(db, 'paymentMethods', methodId), {
+      isActive,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deletePaymentMethod(methodId: string): Promise<void> {
+  const path = `paymentMethods/${methodId}`;
+  try {
+    await deleteDoc(doc(db, 'paymentMethods', methodId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
 

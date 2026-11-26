@@ -32,6 +32,7 @@ import {
   Batch,
   BatchPurchase,
   Habit,
+  PaymentMethod,
   StudySession,
   Subject,
 } from '@/src/types';
@@ -58,6 +59,7 @@ function CadenceApp() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [purchases, setPurchases] = useState<BatchPurchase[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [loadingUserData, setLoadingUserData] = useState(false);
   const [loadingBatches, setLoadingBatches] = useState(true);
 
@@ -72,6 +74,7 @@ function CadenceApp() {
       setSessions([]);
       setHabits([]);
       setPurchases([]);
+      setPaymentMethods([]);
       setAuthReady(true);
       return;
     }
@@ -235,11 +238,35 @@ function CadenceApp() {
       }
     );
 
+    const paymentMethodsQuery = isAdmin
+      ? query(collection(db, 'paymentMethods'))
+      : query(collection(db, 'paymentMethods'), where('isActive', '==', true));
+
+    const unsubPaymentMethods = onSnapshot(
+      paymentMethodsQuery,
+      (snap) => {
+        const items: PaymentMethod[] = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<PaymentMethod, 'id'>),
+        }));
+        items.sort((a, b) => {
+          const ta = a.createdAt ? a.createdAt.toMillis() : 0;
+          const tb = b.createdAt ? b.createdAt.toMillis() : 0;
+          return ta - tb;
+        });
+        setPaymentMethods(items);
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'paymentMethods');
+      }
+    );
+
     return () => {
       unsubSubjects();
       unsubSessions();
       unsubHabits();
       unsubPurchases();
+      unsubPaymentMethods();
     };
   }, [authReady, user, isVerifiedUser, isAdmin]);
 
@@ -387,6 +414,7 @@ function CadenceApp() {
             onRequireSignIn={() => setShowSignInModal(true)}
             batches={batches}
             purchases={purchases}
+            paymentMethods={paymentMethods}
             loadingBatches={loadingBatches}
           />
         )}
@@ -396,6 +424,7 @@ function CadenceApp() {
             adminUid={user.uid}
             batches={batches}
             purchases={purchases}
+            paymentMethods={paymentMethods}
             onAuthRefresh={async () => {
               await syncUserSession(auth.currentUser);
             }}

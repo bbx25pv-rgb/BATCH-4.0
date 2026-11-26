@@ -156,6 +156,15 @@ export function isSafeThumbnailUrl(rawUrl: string): boolean {
   return SAFE_THUMBNAIL_REGEX.test(trimmed);
 }
 
+const SAFE_HTTPS_REGEX = /^https:\/\/[^\s]+$/;
+
+export function isSafeHttpsUrl(rawUrl: string): boolean {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return true;
+  if (trimmed.length > VALIDATION_LIMITS.paymentLinkUrlMax) return false;
+  return SAFE_HTTPS_REGEX.test(trimmed);
+}
+
 export async function compressImageToThumbnailDataUrl(file: File): Promise<string> {
   if (!file.type.startsWith('image/')) {
     throw new Error('Please choose a valid image file (JPEG, PNG, or WebP).');
@@ -205,6 +214,54 @@ export async function compressImageToThumbnailDataUrl(file: File): Promise<strin
     }
 
     throw new Error('Compressed thumbnail is still too large. Please pick a simpler image.');
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+export async function compressSquareQrImageDataUrl(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Please choose a valid image file (JPEG, PNG, or WebP).');
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('Unable to read the selected QR image file.'));
+      el.src = objectUrl;
+    });
+
+    const maxSide = 400;
+    const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+    const width = Math.max(1, Math.round(img.width * scale));
+    const height = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Canvas image processing is unavailable in this browser.');
+    }
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const pngUrl = canvas.toDataURL('image/png');
+    if (pngUrl.length <= VALIDATION_LIMITS.thumbnailUrlMax) {
+      return pngUrl;
+    }
+
+    for (const quality of [0.85, 0.7, 0.55]) {
+      const jpegUrl = canvas.toDataURL('image/jpeg', quality);
+      if (jpegUrl.length <= VALIDATION_LIMITS.thumbnailUrlMax) {
+        return jpegUrl;
+      }
+    }
+
+    throw new Error('QR code image is still too large. Please pick a smaller image.');
   } finally {
     URL.revokeObjectURL(objectUrl);
   }

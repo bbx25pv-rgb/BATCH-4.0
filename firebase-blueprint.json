@@ -420,6 +420,18 @@
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$"
         },
+        "paymentMethodId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "paymentMethodLabel": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "paymentReference": {
+          "type": "string",
+          "maxLength": 120
+        },
         "purchasedAt": {
           "type": "string",
           "format": "date-time"
@@ -430,6 +442,87 @@
         }
       },
       "required": ["userId", "batchId", "batchTitle", "amountPaid", "status", "grantedBy", "purchasedAt", "updatedAt"]
+    },
+    "PaymentMethod": {
+      "title": "PaymentMethod",
+      "description": "Admin-configured payment method (UPI/QR, bank transfer, payment link, or offline cash) displayed to students during batch checkout.",
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "type": {
+          "type": "string",
+          "enum": ["upi", "bank", "gateway", "manual"]
+        },
+        "isActive": {
+          "type": "boolean"
+        },
+        "upiId": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "payeeName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "qrImageUrl": {
+          "type": "string",
+          "maxLength": 150000
+        },
+        "bankName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "accountNumber": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "ifscCode": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "paymentLinkUrl": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "instructions": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "label",
+        "type",
+        "isActive",
+        "upiId",
+        "payeeName",
+        "qrImageUrl",
+        "bankName",
+        "accountNumber",
+        "ifscCode",
+        "paymentLinkUrl",
+        "instructions",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -468,6 +561,10 @@
     "/purchases/{purchaseId}": {
       "schema": { "$ref": "#/entities/BatchPurchase" },
       "description": "Deterministic {userId}_{batchId} purchase records governing lecture subcollection access."
+    },
+    "/paymentMethods/{methodId}": {
+      "schema": { "$ref": "#/entities/PaymentMethod" },
+      "description": "Admin-managed payment methods available to verified students during batch enrollment."
     }
   }
 }

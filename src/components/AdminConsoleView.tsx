@@ -1,13 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Banknote,
+  Building2,
   CheckCircle2,
+  CreditCard,
   Eye,
   EyeOff,
+  Globe,
   Image as ImageIcon,
   KeyRound,
   Link2,
   Pencil,
   Plus,
+  QrCode,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -35,15 +40,21 @@ import {
   adminGrantBatchAccess,
   adminTogglePurchaseStatus,
   createBatch,
+  createPaymentMethod,
+  deletePaymentMethod,
   deleteUnlistedLecture,
+  PaymentMethodInput,
   seedStarterBatches,
   syncBatchSyllabusPreviews,
+  togglePaymentMethodActive,
   updateBatch,
   updateLectureThumbnail,
+  updatePaymentMethod,
   updateUnlistedLecture,
 } from '@/src/lib/studyService';
 import {
   compressImageToThumbnailDataUrl,
+  compressSquareQrImageDataUrl,
   formatInr,
   isSafeThumbnailUrl,
   parseYouTubeVideoId,
@@ -54,6 +65,8 @@ import {
   Batch,
   BatchPurchase,
   Lecture,
+  PaymentMethod,
+  PaymentMethodType,
   VALIDATION_LIMITS,
 } from '@/src/types';
 import { CadenceVideoPlayer } from '@/src/components/CadenceVideoPlayer';
@@ -62,13 +75,36 @@ interface AdminConsoleViewProps {
   adminUid: string;
   batches: Batch[];
   purchases: BatchPurchase[];
+  paymentMethods: PaymentMethod[];
   onAuthRefresh: () => Promise<void>;
 }
+
+const EMPTY_PAYMENT_FORM: PaymentMethodInput = {
+  label: '',
+  type: 'upi',
+  isActive: true,
+  upiId: '',
+  payeeName: '',
+  qrImageUrl: '',
+  bankName: '',
+  accountNumber: '',
+  ifscCode: '',
+  paymentLinkUrl: '',
+  instructions: '',
+};
+
+const PAYMENT_TYPE_OPTIONS: { id: PaymentMethodType; label: string }[] = [
+  { id: 'upi', label: 'UPI / QR' },
+  { id: 'bank', label: 'Bank Transfer' },
+  { id: 'gateway', label: 'Payment Link' },
+  { id: 'manual', label: 'Offline / Cash' },
+];
 
 export function AdminConsoleView({
   adminUid,
   batches,
   purchases,
+  paymentMethods,
   onAuthRefresh,
 }: AdminConsoleViewProps) {
   const [selectedBatchId, setSelectedBatchId] = useState<string>('');
@@ -128,6 +164,14 @@ export function AdminConsoleView({
   const [grantUid, setGrantUid] = useState('');
   const [grantBatchId, setGrantBatchId] = useState('');
   const [granting, setGranting] = useState(false);
+
+  // Payment methods state
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [paymentForm, setPaymentForm] = useState<PaymentMethodInput>(EMPTY_PAYMENT_FORM);
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
+  const [editPaymentForm, setEditPaymentForm] = useState<PaymentMethodInput>(EMPTY_PAYMENT_FORM);
+  const [savingPaymentEdit, setSavingPaymentEdit] = useState(false);
 
   // Admin password setup state
   const [newAdminPassword, setNewAdminPassword] = useState('');
@@ -511,6 +555,112 @@ export function AdminConsoleView({
       );
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Unable to update student batch access.');
+    }
+  }
+
+  async function handleQrFileUpload(
+    file: File | undefined,
+    onResult: (dataUrl: string) => void
+  ) {
+    if (!file) return;
+    setErrorMsg(null);
+    try {
+      const dataUrl = await compressSquareQrImageDataUrl(file);
+      onResult(dataUrl);
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : 'Unable to process selected QR image.'
+      );
+    }
+  }
+
+  async function handleCreatePaymentMethod(e: React.FormEvent) {
+    e.preventDefault();
+    setErrorMsg(null);
+    setFeedback(null);
+    setSavingPayment(true);
+    try {
+      if (!(await ensureVerifiedAdminSession())) return;
+      await createPaymentMethod(adminUid, paymentForm);
+      setPaymentForm(EMPTY_PAYMENT_FORM);
+      setShowPaymentForm(false);
+      setFeedback('Payment method added and ready for student batch checkout.');
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Unable to add payment method.');
+    } finally {
+      setSavingPayment(false);
+    }
+  }
+
+  function startEditingPaymentMethod(method: PaymentMethod) {
+    if (editingPaymentId === method.id) {
+      setEditingPaymentId(null);
+      return;
+    }
+    setEditingPaymentId(method.id);
+    setEditPaymentForm({
+      label: method.label,
+      type: method.type,
+      isActive: method.isActive,
+      upiId: method.upiId,
+      payeeName: method.payeeName,
+      qrImageUrl: method.qrImageUrl,
+      bankName: method.bankName,
+      accountNumber: method.accountNumber,
+      ifscCode: method.ifscCode,
+      paymentLinkUrl: method.paymentLinkUrl,
+      instructions: method.instructions,
+    });
+    setErrorMsg(null);
+    setFeedback(null);
+  }
+
+  async function handleSaveEditedPaymentMethod(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingPaymentId) return;
+    setErrorMsg(null);
+    setFeedback(null);
+    setSavingPaymentEdit(true);
+    try {
+      if (!(await ensureVerifiedAdminSession())) return;
+      await updatePaymentMethod(editingPaymentId, editPaymentForm);
+      setFeedback(`Updated payment method "${editPaymentForm.label.trim()}".`);
+      setEditingPaymentId(null);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Unable to update payment method.');
+    } finally {
+      setSavingPaymentEdit(false);
+    }
+  }
+
+  async function handleTogglePaymentActive(method: PaymentMethod) {
+    setErrorMsg(null);
+    setFeedback(null);
+    try {
+      if (!(await ensureVerifiedAdminSession())) return;
+      await togglePaymentMethodActive(method.id, !method.isActive);
+      setFeedback(
+        !method.isActive
+          ? `Enabled "${method.label}" for batch checkout.`
+          : `Hidden "${method.label}" from batch checkout.`
+      );
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Unable to update payment method.');
+    }
+  }
+
+  async function handleDeletePaymentMethod(method: PaymentMethod) {
+    setErrorMsg(null);
+    setFeedback(null);
+    try {
+      if (!(await ensureVerifiedAdminSession())) return;
+      await deletePaymentMethod(method.id);
+      if (editingPaymentId === method.id) {
+        setEditingPaymentId(null);
+      }
+      setFeedback(`Removed payment method "${method.label}".`);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Unable to delete payment method.');
     }
   }
 
@@ -1693,6 +1843,8 @@ export function AdminConsoleView({
                       </p>
                       <p className="text-[11px] font-mono text-slate-500 truncate">
                         UID: {p.userId} · {p.status}
+                        {p.paymentMethodLabel ? ` · ${p.paymentMethodLabel}` : ''}
+                        {p.paymentReference ? ` (${p.paymentReference})` : ''}
                       </p>
                     </div>
                     <button
@@ -1708,6 +1860,853 @@ export function AdminConsoleView({
                     </button>
                   </div>
                 ))
+              )}
+            </div>
+          </div>
+
+          {/* Payment Methods Card */}
+          <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-blue-600" />
+                  <span>Payment Methods</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Configure UPI ID/QR, bank transfer, payment links, or offline cash shown during batch checkout.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPaymentForm((v) => !v);
+                  setErrorMsg(null);
+                }}
+                className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg whitespace-nowrap shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{showPaymentForm ? 'Close' : 'Add Method'}</span>
+              </button>
+            </div>
+
+            {showPaymentForm && (
+              <form
+                onSubmit={handleCreatePaymentMethod}
+                className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3"
+              >
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  {PAYMENT_TYPE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() =>
+                        setPaymentForm((prev) => ({ ...prev, type: opt.id }))
+                      }
+                      className={`px-2.5 py-1.5 text-xs font-medium rounded-md border transition-colors ${
+                        paymentForm.type === opt.id
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="pay-label"
+                    className="block text-[11px] font-medium text-slate-700 mb-1"
+                  >
+                    Method Label
+                  </label>
+                  <input
+                    id="pay-label"
+                    type="text"
+                    required
+                    maxLength={VALIDATION_LIMITS.paymentLabelMax}
+                    value={paymentForm.label}
+                    onChange={(e) =>
+                      setPaymentForm((prev) => ({ ...prev, label: e.target.value }))
+                    }
+                    placeholder={
+                      paymentForm.type === 'upi'
+                        ? 'e.g., Official UPI / GPay / PhonePe'
+                        : paymentForm.type === 'bank'
+                        ? 'e.g., HDFC Current Account (NEFT/IMPS)'
+                        : paymentForm.type === 'gateway'
+                        ? 'e.g., Razorpay Payment Link'
+                        : 'e.g., Campus Reception Cash'
+                    }
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                  />
+                </div>
+
+                {paymentForm.type === 'upi' && (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label
+                          htmlFor="pay-upi-id"
+                          className="block text-[11px] font-medium text-slate-700 mb-1"
+                        >
+                          UPI ID (VPA)
+                        </label>
+                        <input
+                          id="pay-upi-id"
+                          type="text"
+                          maxLength={VALIDATION_LIMITS.upiIdMax}
+                          value={paymentForm.upiId}
+                          onChange={(e) =>
+                            setPaymentForm((prev) => ({ ...prev, upiId: e.target.value }))
+                          }
+                          placeholder="academy@okicici"
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="pay-upi-payee"
+                          className="block text-[11px] font-medium text-slate-700 mb-1"
+                        >
+                          Payee Name
+                        </label>
+                        <input
+                          id="pay-upi-payee"
+                          type="text"
+                          maxLength={VALIDATION_LIMITS.payeeNameMax}
+                          value={paymentForm.payeeName}
+                          onChange={(e) =>
+                            setPaymentForm((prev) => ({ ...prev, payeeName: e.target.value }))
+                          }
+                          placeholder="Cadence Study Academy"
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <label
+                          htmlFor="pay-qr-url"
+                          className="block text-[11px] font-medium text-slate-700"
+                        >
+                          UPI QR Code Image (optional)
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <label className="inline-flex items-center gap-1 px-2 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-800 text-[11px] font-medium rounded cursor-pointer">
+                            <Upload className="w-3 h-3" />
+                            <span>Upload QR</span>
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                void handleQrFileUpload(file, (dataUrl) =>
+                                  setPaymentForm((prev) => ({ ...prev, qrImageUrl: dataUrl }))
+                                );
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                          {paymentForm.qrImageUrl && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPaymentForm((prev) => ({ ...prev, qrImageUrl: '' }))
+                              }
+                              className="text-[11px] text-slate-500 hover:text-rose-700"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2.5">
+                        <input
+                          id="pay-qr-url"
+                          type="text"
+                          value={
+                            paymentForm.qrImageUrl.startsWith('data:image/')
+                              ? 'Uploaded QR code image'
+                              : paymentForm.qrImageUrl
+                          }
+                          readOnly={paymentForm.qrImageUrl.startsWith('data:image/')}
+                          onChange={(e) =>
+                            setPaymentForm((prev) => ({ ...prev, qrImageUrl: e.target.value }))
+                          }
+                          placeholder="https://... or upload QR screenshot"
+                          className="flex-1 px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                        />
+                        {paymentForm.qrImageUrl && (
+                          <img
+                            src={paymentForm.qrImageUrl}
+                            alt="UPI QR preview"
+                            className="w-11 h-11 rounded border border-slate-200 object-contain bg-white shrink-0"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {paymentForm.type === 'bank' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label
+                        htmlFor="pay-bank-payee"
+                        className="block text-[11px] font-medium text-slate-700 mb-1"
+                      >
+                        Account Holder Name
+                      </label>
+                      <input
+                        id="pay-bank-payee"
+                        type="text"
+                        maxLength={VALIDATION_LIMITS.payeeNameMax}
+                        value={paymentForm.payeeName}
+                        onChange={(e) =>
+                          setPaymentForm((prev) => ({ ...prev, payeeName: e.target.value }))
+                        }
+                        placeholder="Cadence Education Pvt Ltd"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="pay-bank-name"
+                        className="block text-[11px] font-medium text-slate-700 mb-1"
+                      >
+                        Bank Name
+                      </label>
+                      <input
+                        id="pay-bank-name"
+                        type="text"
+                        required
+                        maxLength={VALIDATION_LIMITS.bankNameMax}
+                        value={paymentForm.bankName}
+                        onChange={(e) =>
+                          setPaymentForm((prev) => ({ ...prev, bankName: e.target.value }))
+                        }
+                        placeholder="HDFC Bank"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="pay-bank-acc"
+                        className="block text-[11px] font-medium text-slate-700 mb-1"
+                      >
+                        Account Number
+                      </label>
+                      <input
+                        id="pay-bank-acc"
+                        type="text"
+                        required
+                        maxLength={VALIDATION_LIMITS.accountNumberMax}
+                        value={paymentForm.accountNumber}
+                        onChange={(e) =>
+                          setPaymentForm((prev) => ({ ...prev, accountNumber: e.target.value }))
+                        }
+                        placeholder="50200012345678"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="pay-bank-ifsc"
+                        className="block text-[11px] font-medium text-slate-700 mb-1"
+                      >
+                        IFSC Code
+                      </label>
+                      <input
+                        id="pay-bank-ifsc"
+                        type="text"
+                        required
+                        maxLength={VALIDATION_LIMITS.ifscCodeMax}
+                        value={paymentForm.ifscCode}
+                        onChange={(e) =>
+                          setPaymentForm((prev) => ({ ...prev, ifscCode: e.target.value }))
+                        }
+                        placeholder="HDFC0000123"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs font-mono uppercase"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {paymentForm.type === 'gateway' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label
+                        htmlFor="pay-link-url"
+                        className="block text-[11px] font-medium text-slate-700 mb-1"
+                      >
+                        Checkout / Payment Link (https://)
+                      </label>
+                      <input
+                        id="pay-link-url"
+                        type="url"
+                        required
+                        maxLength={VALIDATION_LIMITS.paymentLinkUrlMax}
+                        value={paymentForm.paymentLinkUrl}
+                        onChange={(e) =>
+                          setPaymentForm((prev) => ({ ...prev, paymentLinkUrl: e.target.value }))
+                        }
+                        placeholder="https://rzp.io/l/cadence-batch"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="pay-link-payee"
+                        className="block text-[11px] font-medium text-slate-700 mb-1"
+                      >
+                        Provider / Merchant Name
+                      </label>
+                      <input
+                        id="pay-link-payee"
+                        type="text"
+                        maxLength={VALIDATION_LIMITS.payeeNameMax}
+                        value={paymentForm.payeeName}
+                        onChange={(e) =>
+                          setPaymentForm((prev) => ({ ...prev, payeeName: e.target.value }))
+                        }
+                        placeholder="Razorpay / Cashfree"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {paymentForm.type === 'manual' && (
+                  <div>
+                    <label
+                      htmlFor="pay-manual-payee"
+                      className="block text-[11px] font-medium text-slate-700 mb-1"
+                    >
+                      Receiver / Desk Name
+                    </label>
+                    <input
+                      id="pay-manual-payee"
+                      type="text"
+                      maxLength={VALIDATION_LIMITS.payeeNameMax}
+                      value={paymentForm.payeeName}
+                      onChange={(e) =>
+                        setPaymentForm((prev) => ({ ...prev, payeeName: e.target.value }))
+                      }
+                      placeholder="Admissions Office"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label
+                    htmlFor="pay-inst"
+                    className="block text-[11px] font-medium text-slate-700 mb-1"
+                  >
+                    Student Instructions {paymentForm.type === 'manual' ? '(required)' : '(optional)'}
+                  </label>
+                  <input
+                    id="pay-inst"
+                    type="text"
+                    required={paymentForm.type === 'manual'}
+                    maxLength={VALIDATION_LIMITS.paymentInstructionsMax}
+                    value={paymentForm.instructions}
+                    onChange={(e) =>
+                      setPaymentForm((prev) => ({ ...prev, instructions: e.target.value }))
+                    }
+                    placeholder="e.g., Pay exact INR tuition and enter the 12-digit UTR number below."
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={paymentForm.isActive}
+                      onChange={(e) =>
+                        setPaymentForm((prev) => ({ ...prev, isActive: e.target.checked }))
+                      }
+                      className="rounded border-slate-300"
+                    />
+                    <span>Show at student checkout</span>
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={savingPayment}
+                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md disabled:opacity-50"
+                  >
+                    {savingPayment ? 'Saving...' : 'Save Payment Method'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            <div className="divide-y divide-slate-100">
+              {paymentMethods.length === 0 ? (
+                <p className="text-xs text-slate-500 py-2">
+                  No payment methods configured yet. Add UPI, Bank Transfer, Payment Link, or Cash instructions.
+                </p>
+              ) : (
+                paymentMethods.map((method) => {
+                  const isEditingThisMethod = editingPaymentId === method.id;
+                  return (
+                    <div key={method.id} className="py-3 first:pt-0 last:pb-0 space-y-2.5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center shrink-0 mt-0.5">
+                            {method.type === 'upi' ? (
+                              <QrCode className="w-4 h-4 text-blue-600" />
+                            ) : method.type === 'bank' ? (
+                              <Building2 className="w-4 h-4 text-blue-600" />
+                            ) : method.type === 'gateway' ? (
+                              <Globe className="w-4 h-4 text-blue-600" />
+                            ) : (
+                              <Banknote className="w-4 h-4 text-blue-600" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-slate-900 truncate">
+                              {method.label}{' '}
+                              <span
+                                className={`ml-1 font-mono text-[10px] ${
+                                  method.isActive ? 'text-emerald-700' : 'text-slate-400'
+                                }`}
+                              >
+                                · {method.isActive ? 'Active' : 'Hidden'}
+                              </span>
+                            </p>
+                            <p className="text-[11px] text-slate-500 font-mono truncate">
+                              {method.type === 'upi'
+                                ? method.upiId || 'QR Code Image'
+                                : method.type === 'bank'
+                                ? `${method.bankName} · ****${method.accountNumber.slice(-4)} · ${method.ifscCode}`
+                                : method.type === 'gateway'
+                                ? method.paymentLinkUrl
+                                : method.instructions}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            aria-label={`Edit ${method.label}`}
+                            title="Edit payment method"
+                            onClick={() => startEditingPaymentMethod(method)}
+                            className={`p-1.5 rounded transition-colors ${
+                              isEditingThisMethod
+                                ? 'text-blue-700 bg-blue-50'
+                                : 'text-slate-400 hover:text-blue-600'
+                            }`}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={method.isActive ? `Hide ${method.label}` : `Enable ${method.label}`}
+                            title={method.isActive ? 'Hide from checkout' : 'Enable at checkout'}
+                            onClick={() => void handleTogglePaymentActive(method)}
+                            className="p-1.5 text-slate-400 hover:text-slate-800 rounded transition-colors"
+                          >
+                            {method.isActive ? (
+                              <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                            ) : (
+                              <EyeOff className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Delete ${method.label}`}
+                            title="Delete payment method"
+                            onClick={() => void handleDeletePaymentMethod(method)}
+                            className="p-1.5 text-slate-400 hover:text-rose-700 rounded transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {isEditingThisMethod && (
+                        <form
+                          onSubmit={handleSaveEditedPaymentMethod}
+                          className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2.5"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-slate-800">
+                              Edit Payment Method
+                            </p>
+                            <button
+                              type="button"
+                              aria-label="Cancel payment edit"
+                              onClick={() => setEditingPaymentId(null)}
+                              className="p-1 text-slate-400 hover:text-slate-700 rounded"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                            {PAYMENT_TYPE_OPTIONS.map((opt) => (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() =>
+                                  setEditPaymentForm((prev) => ({ ...prev, type: opt.id }))
+                                }
+                                className={`px-2 py-1 text-[11px] font-medium rounded border transition-colors ${
+                                  editPaymentForm.type === opt.id
+                                    ? 'bg-slate-900 text-white border-slate-900'
+                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          <div>
+                            <label
+                              htmlFor={`edit-pay-label-${method.id}`}
+                              className="block text-[11px] font-medium text-slate-700 mb-1"
+                            >
+                              Method Label
+                            </label>
+                            <input
+                              id={`edit-pay-label-${method.id}`}
+                              type="text"
+                              required
+                              maxLength={VALIDATION_LIMITS.paymentLabelMax}
+                              value={editPaymentForm.label}
+                              onChange={(e) =>
+                                setEditPaymentForm((prev) => ({ ...prev, label: e.target.value }))
+                              }
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                            />
+                          </div>
+
+                          {editPaymentForm.type === 'upi' && (
+                            <>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                <div>
+                                  <label
+                                    htmlFor={`edit-pay-upi-${method.id}`}
+                                    className="block text-[11px] font-medium text-slate-700 mb-1"
+                                  >
+                                    UPI ID (VPA)
+                                  </label>
+                                  <input
+                                    id={`edit-pay-upi-${method.id}`}
+                                    type="text"
+                                    maxLength={VALIDATION_LIMITS.upiIdMax}
+                                    value={editPaymentForm.upiId}
+                                    onChange={(e) =>
+                                      setEditPaymentForm((prev) => ({ ...prev, upiId: e.target.value }))
+                                    }
+                                    className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs font-mono"
+                                  />
+                                </div>
+                                <div>
+                                  <label
+                                    htmlFor={`edit-pay-payee-${method.id}`}
+                                    className="block text-[11px] font-medium text-slate-700 mb-1"
+                                  >
+                                    Payee Name
+                                  </label>
+                                  <input
+                                    id={`edit-pay-payee-${method.id}`}
+                                    type="text"
+                                    maxLength={VALIDATION_LIMITS.payeeNameMax}
+                                    value={editPaymentForm.payeeName}
+                                    onChange={(e) =>
+                                      setEditPaymentForm((prev) => ({
+                                        ...prev,
+                                        payeeName: e.target.value,
+                                      }))
+                                    }
+                                    className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <input
+                                  type="text"
+                                  aria-label="Edit QR Code URL"
+                                  value={
+                                    editPaymentForm.qrImageUrl.startsWith('data:image/')
+                                      ? 'Uploaded QR code image'
+                                      : editPaymentForm.qrImageUrl
+                                  }
+                                  readOnly={editPaymentForm.qrImageUrl.startsWith('data:image/')}
+                                  onChange={(e) =>
+                                    setEditPaymentForm((prev) => ({
+                                      ...prev,
+                                      qrImageUrl: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="QR URL or upload image"
+                                  className="flex-1 min-w-[140px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                                />
+                                <label className="inline-flex items-center gap-1 px-2 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 text-slate-800 text-[11px] font-medium rounded cursor-pointer">
+                                  <Upload className="w-3 h-3" />
+                                  <span>Upload QR</span>
+                                  <input
+                                    type="file"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      const file = e.target.files?.[0];
+                                      void handleQrFileUpload(file, (dataUrl) =>
+                                        setEditPaymentForm((prev) => ({
+                                          ...prev,
+                                          qrImageUrl: dataUrl,
+                                        }))
+                                      );
+                                      e.target.value = '';
+                                    }}
+                                  />
+                                </label>
+                                {editPaymentForm.qrImageUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setEditPaymentForm((prev) => ({ ...prev, qrImageUrl: '' }))
+                                    }
+                                    className="text-[11px] text-slate-500 hover:text-rose-700"
+                                  >
+                                    Clear
+                                  </button>
+                                )}
+                              </div>
+                            </>
+                          )}
+
+                          {editPaymentForm.type === 'bank' && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                              <div>
+                                <label
+                                  htmlFor={`edit-pay-holder-${method.id}`}
+                                  className="block text-[11px] font-medium text-slate-700 mb-1"
+                                >
+                                  Account Holder
+                                </label>
+                                <input
+                                  id={`edit-pay-holder-${method.id}`}
+                                  type="text"
+                                  maxLength={VALIDATION_LIMITS.payeeNameMax}
+                                  value={editPaymentForm.payeeName}
+                                  onChange={(e) =>
+                                    setEditPaymentForm((prev) => ({
+                                      ...prev,
+                                      payeeName: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                                />
+                              </div>
+                              <div>
+                                <label
+                                  htmlFor={`edit-pay-bname-${method.id}`}
+                                  className="block text-[11px] font-medium text-slate-700 mb-1"
+                                >
+                                  Bank Name
+                                </label>
+                                <input
+                                  id={`edit-pay-bname-${method.id}`}
+                                  type="text"
+                                  required
+                                  maxLength={VALIDATION_LIMITS.bankNameMax}
+                                  value={editPaymentForm.bankName}
+                                  onChange={(e) =>
+                                    setEditPaymentForm((prev) => ({
+                                      ...prev,
+                                      bankName: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                                />
+                              </div>
+                              <div>
+                                <label
+                                  htmlFor={`edit-pay-acc-${method.id}`}
+                                  className="block text-[11px] font-medium text-slate-700 mb-1"
+                                >
+                                  Account Number
+                                </label>
+                                <input
+                                  id={`edit-pay-acc-${method.id}`}
+                                  type="text"
+                                  required
+                                  maxLength={VALIDATION_LIMITS.accountNumberMax}
+                                  value={editPaymentForm.accountNumber}
+                                  onChange={(e) =>
+                                    setEditPaymentForm((prev) => ({
+                                      ...prev,
+                                      accountNumber: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label
+                                  htmlFor={`edit-pay-ifsc-${method.id}`}
+                                  className="block text-[11px] font-medium text-slate-700 mb-1"
+                                >
+                                  IFSC Code
+                                </label>
+                                <input
+                                  id={`edit-pay-ifsc-${method.id}`}
+                                  type="text"
+                                  required
+                                  maxLength={VALIDATION_LIMITS.ifscCodeMax}
+                                  value={editPaymentForm.ifscCode}
+                                  onChange={(e) =>
+                                    setEditPaymentForm((prev) => ({
+                                      ...prev,
+                                      ifscCode: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs font-mono uppercase"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {editPaymentForm.type === 'gateway' && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                              <div>
+                                <label
+                                  htmlFor={`edit-pay-url-${method.id}`}
+                                  className="block text-[11px] font-medium text-slate-700 mb-1"
+                                >
+                                  Checkout Link (https://)
+                                </label>
+                                <input
+                                  id={`edit-pay-url-${method.id}`}
+                                  type="url"
+                                  required
+                                  maxLength={VALIDATION_LIMITS.paymentLinkUrlMax}
+                                  value={editPaymentForm.paymentLinkUrl}
+                                  onChange={(e) =>
+                                    setEditPaymentForm((prev) => ({
+                                      ...prev,
+                                      paymentLinkUrl: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label
+                                  htmlFor={`edit-pay-prov-${method.id}`}
+                                  className="block text-[11px] font-medium text-slate-700 mb-1"
+                                >
+                                  Provider / Merchant
+                                </label>
+                                <input
+                                  id={`edit-pay-prov-${method.id}`}
+                                  type="text"
+                                  maxLength={VALIDATION_LIMITS.payeeNameMax}
+                                  value={editPaymentForm.payeeName}
+                                  onChange={(e) =>
+                                    setEditPaymentForm((prev) => ({
+                                      ...prev,
+                                      payeeName: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {editPaymentForm.type === 'manual' && (
+                            <div>
+                              <label
+                                htmlFor={`edit-pay-desk-${method.id}`}
+                                className="block text-[11px] font-medium text-slate-700 mb-1"
+                              >
+                                Receiver / Desk Name
+                              </label>
+                              <input
+                                id={`edit-pay-desk-${method.id}`}
+                                type="text"
+                                maxLength={VALIDATION_LIMITS.payeeNameMax}
+                                value={editPaymentForm.payeeName}
+                                onChange={(e) =>
+                                  setEditPaymentForm((prev) => ({
+                                    ...prev,
+                                    payeeName: e.target.value,
+                                  }))
+                                }
+                                className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                              />
+                            </div>
+                          )}
+
+                          <div>
+                            <label
+                              htmlFor={`edit-pay-inst-${method.id}`}
+                              className="block text-[11px] font-medium text-slate-700 mb-1"
+                            >
+                              Instructions
+                            </label>
+                            <input
+                              id={`edit-pay-inst-${method.id}`}
+                              type="text"
+                              required={editPaymentForm.type === 'manual'}
+                              maxLength={VALIDATION_LIMITS.paymentInstructionsMax}
+                              value={editPaymentForm.instructions}
+                              onChange={(e) =>
+                                setEditPaymentForm((prev) => ({
+                                  ...prev,
+                                  instructions: e.target.value,
+                                }))
+                              }
+                              className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-md text-base sm:text-xs"
+                            />
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                            <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={editPaymentForm.isActive}
+                                onChange={(e) =>
+                                  setEditPaymentForm((prev) => ({
+                                    ...prev,
+                                    isActive: e.target.checked,
+                                  }))
+                                }
+                                className="rounded border-slate-300"
+                              />
+                              <span>Active</span>
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setEditingPaymentId(null)}
+                                className="px-3 py-1 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-md"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="submit"
+                                disabled={savingPaymentEdit}
+                                className="px-3.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md disabled:opacity-50"
+                              >
+                                {savingPaymentEdit ? 'Saving...' : 'Save Method'}
+                              </button>
+                            </div>
+                          </div>
+                        </form>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>

@@ -180,14 +180,50 @@ service cloud.firestore {
 
     function isValidBatchPurchase(data) {
       return data.keys().hasAll(['userId', 'batchId', 'batchTitle', 'amountPaid', 'status', 'grantedBy', 'purchasedAt', 'updatedAt']) &&
-        data.keys().hasOnly(['userId', 'batchId', 'batchTitle', 'amountPaid', 'status', 'grantedBy', 'purchasedAt', 'updatedAt']) &&
+        data.keys().hasOnly(['userId', 'batchId', 'batchTitle', 'amountPaid', 'status', 'grantedBy', 'paymentMethodId', 'paymentMethodLabel', 'paymentReference', 'purchasedAt', 'updatedAt']) &&
         isValidId(data.userId) &&
         isValidId(data.batchId) &&
         data.batchTitle is string && data.batchTitle.size() >= 1 && data.batchTitle.size() <= 120 &&
         data.amountPaid is number && data.amountPaid >= 0 && data.amountPaid <= 500000 &&
         data.status in ['active', 'revoked'] &&
         isValidId(data.grantedBy) &&
+        (!('paymentMethodId' in data) || (data.paymentMethodId is string && data.paymentMethodId.size() <= 128)) &&
+        (!('paymentMethodLabel' in data) || (data.paymentMethodLabel is string && data.paymentMethodLabel.size() <= 80)) &&
+        (!('paymentReference' in data) || (data.paymentReference is string && data.paymentReference.size() <= 120)) &&
         data.purchasedAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPaymentMethod(data) {
+      return data.keys().hasAll(['label', 'type', 'isActive', 'upiId', 'payeeName', 'qrImageUrl', 'bankName', 'accountNumber', 'ifscCode', 'paymentLinkUrl', 'instructions', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['label', 'type', 'isActive', 'upiId', 'payeeName', 'qrImageUrl', 'bankName', 'accountNumber', 'ifscCode', 'paymentLinkUrl', 'instructions', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.label is string && data.label.size() >= 1 && data.label.size() <= 80 &&
+        data.type in ['upi', 'bank', 'gateway', 'manual'] &&
+        data.isActive is bool &&
+        data.upiId is string && data.upiId.size() <= 120 &&
+        data.payeeName is string && data.payeeName.size() <= 100 &&
+        data.qrImageUrl is string &&
+        data.qrImageUrl.size() <= 150000 &&
+        (
+          data.qrImageUrl == '' ||
+          data.qrImageUrl.matches('^(https://[^\\s]+|data:image/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+)$')
+        ) &&
+        data.bankName is string && data.bankName.size() <= 100 &&
+        data.accountNumber is string && data.accountNumber.size() <= 40 &&
+        data.ifscCode is string && data.ifscCode.size() <= 20 &&
+        data.paymentLinkUrl is string &&
+        data.paymentLinkUrl.size() <= 300 &&
+        (
+          data.paymentLinkUrl == '' ||
+          data.paymentLinkUrl.matches('^https://[^\\s]+$')
+        ) &&
+        data.instructions is string && data.instructions.size() <= 400 &&
+        (data.type != 'upi' || data.upiId.size() >= 3 || data.qrImageUrl.size() >= 10) &&
+        (data.type != 'bank' || (data.bankName.size() >= 2 && data.accountNumber.size() >= 4 && data.ifscCode.size() >= 4)) &&
+        (data.type != 'gateway' || data.paymentLinkUrl.size() >= 10) &&
+        (data.type != 'manual' || data.instructions.size() >= 3) &&
+        isValidId(data.createdBy) &&
+        data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
 
@@ -383,6 +419,35 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'amountPaid', 'batchTitle', 'grantedBy', 'updatedAt']);
       allow delete: if isAdmin() && isValidId(purchaseId);
+    }
+
+    // Collection: /paymentMethods/{methodId}
+    match /paymentMethods/{methodId} {
+      allow get: if isValidId(methodId) && (isAdmin() || (isVerified() && existing().isActive == true));
+      allow list: if isAdmin() || (isVerified() && existing().isActive == true);
+      allow create: if isAdmin() && isValidId(methodId) && isValidPaymentMethod(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(methodId) && isValidPaymentMethod(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'label',
+          'type',
+          'isActive',
+          'upiId',
+          'payeeName',
+          'qrImageUrl',
+          'bankName',
+          'accountNumber',
+          'ifscCode',
+          'paymentLinkUrl',
+          'instructions',
+          'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(methodId);
     }
   }
 }

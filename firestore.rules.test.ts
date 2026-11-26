@@ -20,6 +20,7 @@ const requiredCollections = [
   '/batches/{batchId}/lectures/{lectureId}',
   '/batches/{batchId}/syllabus/{lectureId}',
   '/purchases/{purchaseId}',
+  '/paymentMethods/{methodId}',
 ];
 
 for (const path of requiredCollections) {
@@ -38,6 +39,11 @@ assert.ok(
   rules.includes('match /syllabus/{lectureId}') &&
     rules.includes('(isVerified() &&\n           exists(/databases/$(database)/documents/batches/$(batchId))'),
   'Syllabus previews must require verified sign-in'
+);
+assert.ok(
+  rules.includes('isValidPaymentMethod(incoming())') &&
+    rules.includes('match /paymentMethods/{methodId}'),
+  'Payment methods must require admin writes and verified active reads'
 );
 
 console.log('All security rule structural invariants passed.');
