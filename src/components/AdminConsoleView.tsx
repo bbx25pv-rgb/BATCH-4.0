@@ -2429,7 +2429,9 @@ export function AdminConsoleView({
                             <p className="text-[11px] text-slate-700 truncate">
                               {pendingStudent
                                 ? `${pendingStudent.displayName} · ${
-                                    pendingStudent.email || pendingStudent.phoneNumber
+                                    [pendingStudent.email, pendingStudent.phoneNumber]
+                                      .filter(Boolean)
+                                      .join(' · ') || 'Verified User'
                                   }`
                                 : 'Registered Student'}
                             </p>
@@ -2609,7 +2611,8 @@ export function AdminConsoleView({
                               )}
                             </p>
                             <p className="text-[11px] text-slate-500 truncate">
-                              {student.email || student.phoneNumber || 'Verified User'}
+                              {[student.email, student.phoneNumber].filter(Boolean).join(' · ') ||
+                                'Verified User'}
                             </p>
                             <p className="text-[10px] font-mono text-slate-400 truncate">
                               UID: {student.uid}

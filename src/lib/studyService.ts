@@ -41,25 +41,60 @@ function makeDocId(prefix: string): string {
   return `${prefix}_${Date.now()}_${rand}`;
 }
 
+const PENDING_SIGNUP_PHONE_PREFIX = 'cadence_pending_signup_phone_';
+
+export function savePendingSignupPhone(uid: string, phoneNumber: string): void {
+  const clean = sanitizeString(phoneNumber, VALIDATION_LIMITS.phoneNumberMax);
+  if (!uid || !clean) return;
+  try {
+    window.localStorage.setItem(`${PENDING_SIGNUP_PHONE_PREFIX}${uid}`, clean);
+  } catch {
+    // Ignore storage quota / privacy mode errors
+  }
+}
+
+function getPendingSignupPhone(uid: string): string {
+  if (!uid) return '';
+  try {
+    return window.localStorage.getItem(`${PENDING_SIGNUP_PHONE_PREFIX}${uid}`) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function clearPendingSignupPhone(uid: string): void {
+  if (!uid) return;
+  try {
+    window.localStorage.removeItem(`${PENDING_SIGNUP_PHONE_PREFIX}${uid}`);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export async function ensureUserProfile(user: User): Promise<void> {
   const ref = doc(db, 'users', user.uid);
   try {
     const snap = await getDoc(ref);
     if (!snap.exists()) {
+      const pendingPhone = getPendingSignupPhone(user.uid);
+      const resolvedPhone = user.phoneNumber || pendingPhone || '';
       const fallbackName =
         user.displayName ||
         user.email?.split('@')[0] ||
-        user.phoneNumber ||
+        resolvedPhone ||
         'Student';
       await setDoc(ref, {
         uid: user.uid,
         displayName: sanitizeString(fallbackName, VALIDATION_LIMITS.displayNameMax),
         email: sanitizeString(user.email || '', VALIDATION_LIMITS.emailMax),
-        phoneNumber: sanitizeString(user.phoneNumber || '', VALIDATION_LIMITS.phoneNumberMax),
+        phoneNumber: sanitizeString(resolvedPhone, VALIDATION_LIMITS.phoneNumberMax),
         dailyGoalMinutes: 120,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
+      if (pendingPhone) {
+        clearPendingSignupPhone(user.uid);
+      }
     }
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}`);

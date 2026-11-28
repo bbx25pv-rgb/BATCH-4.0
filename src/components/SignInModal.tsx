@@ -1,25 +1,22 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  ConfirmationResult,
   createUserWithEmailAndPassword,
-  RecaptchaVerifier,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
-  signInWithPhoneNumber,
   signInWithPopup,
   updateProfile,
 } from 'firebase/auth';
 import {
-  ArrowLeft,
   Lock,
   Mail,
   Phone,
-  ShieldCheck,
   User as UserIcon,
   X,
 } from 'lucide-react';
 import { auth, googleProvider } from '@/src/lib/firebase';
+import { savePendingSignupPhone } from '@/src/lib/studyService';
+import { VALIDATION_LIMITS } from '@/src/types';
 
 interface SignInModalProps {
   isOpen: boolean;
@@ -27,10 +24,14 @@ interface SignInModalProps {
   onAuthSuccess?: () => void | Promise<void>;
 }
 
-type AuthMethodTab = 'email' | 'phone';
+type AuthMode = 'signin' | 'signup';
 
-function normalizePhoneNumber(raw: string): string {
-  return raw.replace(/[\s()-]/g, '');
+function isValidPhoneInput(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.length > VALIDATION_LIMITS.phoneNumberMax) return false;
+  if (!/^[+\d][\d\s()-]{6,29}$/.test(trimmed)) return false;
+  const digits = trimmed.replace(/\D/g, '');
+  return digits.length >= 7 && digits.length <= 15;
 }
 
 function mapAuthError(err: unknown): string {
@@ -45,79 +46,47 @@ function mapAuthError(err: unknown): string {
     case 'auth/user-not-found':
       return 'Incorrect email or password. If you normally sign in with Google, click "Continue with Google" or use "Forgot password?" to set a password.';
     case 'auth/email-already-in-use':
-      return 'An account with this email already exists. Sign in above or click "Forgot password?" to set or reset your password.';
+      return 'An account with this email already exists. Sign in with Email or click "Forgot password?" to reset your password.';
     case 'auth/weak-password':
       return 'Password must be at least 6 characters long.';
-    case 'auth/invalid-phone-number':
-      return 'Enter a valid phone number including country code (e.g. +14155552671 or +919876543210).';
     case 'auth/too-many-requests':
       return 'Too many attempts. Please wait a few minutes and try again.';
-    case 'auth/invalid-verification-code':
-      return 'The verification code does not match. Check the SMS code and try again.';
-    case 'auth/code-expired':
-      return 'That verification code expired. Request a new SMS code.';
-    case 'auth/captcha-check-failed':
-      return 'reCAPTCHA verification failed. Ensure this app domain is listed under Authorized Domains in Firebase Authentication.';
     case 'auth/unauthorized-domain':
       return 'This domain is not authorized in Firebase Authentication. Add this app URL under Authentication -> Settings -> Authorized domains in the Firebase Console.';
-    case 'auth/billing-not-enabled':
-      return 'Real SMS verification requires Firebase Blaze billing, or you can add a free Test Phone Number inside Authentication -> Sign-in method -> Phone -> Phone numbers for testing.';
     default:
       return err instanceof Error ? err.message : 'Unable to complete sign-in.';
   }
 }
 
 export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps) {
-  const [methodTab, setMethodTab] = useState<AuthMethodTab>('email');
-
-  // Student / User Email & password state
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>('signin');
   const [fullName, setFullName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loadingEmail, setLoadingEmail] = useState(false);
-
-  // Phone auth state
-  const [phoneInput, setPhoneInput] = useState('');
-  const [otpCode, setOtpCode] = useState('');
-  const [confirmationResult, setConfirmationResult] =
-    useState<ConfirmationResult | null>(null);
-  const [loadingPhone, setLoadingPhone] = useState(false);
-
-  // Google & feedback state
   const [loadingGoogle, setLoadingGoogle] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
 
-  const recaptchaContainerRef = useRef<HTMLDivElement | null>(null);
-  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
-
   useEffect(() => {
     if (!isOpen) {
-      if (recaptchaVerifierRef.current) {
-        recaptchaVerifierRef.current.clear();
-        recaptchaVerifierRef.current = null;
-      }
-      setConfirmationResult(null);
-      setOtpCode('');
       setPassword('');
       setErrorMsg(null);
       setInfoMsg(null);
     }
   }, [isOpen]);
 
-  useEffect(() => {
-    return () => {
-      if (recaptchaVerifierRef.current) {
-        recaptchaVerifierRef.current.clear();
-        recaptchaVerifierRef.current = null;
-      }
-    };
-  }, []);
-
   if (!isOpen) return null;
 
-  const isBusy = loadingGoogle || loadingEmail || loadingPhone;
+  const isSignUp = authMode === 'signup';
+  const isBusy = loadingGoogle || loadingEmail;
+
+  function switchAuthMode(nextMode: AuthMode) {
+    setAuthMode(nextMode);
+    setErrorMsg(null);
+    setInfoMsg(null);
+  }
 
   async function handleGoogleSignIn() {
     setErrorMsg(null);
@@ -140,9 +109,24 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
     e.preventDefault();
     setErrorMsg(null);
     setInfoMsg(null);
+
     const cleanEmail = email.trim();
+    const cleanName = fullName.trim();
+    const cleanPhone = phoneNumber.trim();
+
+    if (isSignUp) {
+      if (!cleanName) {
+        setErrorMsg('Please enter your full name.');
+        return;
+      }
+      if (!isValidPhoneInput(cleanPhone)) {
+        setErrorMsg('Please enter a valid phone number (at least 7 digits, e.g. +91 98765 43210).');
+        return;
+      }
+    }
+
     if (!cleanEmail || password.length < 6) {
-      setErrorMsg('Enter a valid email and a password of at least 6 characters.');
+      setErrorMsg('Enter a valid email address and a password of at least 6 characters.');
       return;
     }
 
@@ -150,9 +134,8 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
     try {
       if (isSignUp) {
         const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
-        if (fullName.trim()) {
-          await updateProfile(cred.user, { displayName: fullName.trim() });
-        }
+        savePendingSignupPhone(cred.user.uid, cleanPhone);
+        await updateProfile(cred.user, { displayName: cleanName });
         await sendEmailVerification(cred.user);
         await onAuthSuccess?.();
         onClose();
@@ -175,7 +158,7 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
     setInfoMsg(null);
     const cleanEmail = targetEmail.trim();
     if (!cleanEmail) {
-      setErrorMsg('Enter an email address first so we can send a password setup/reset link.');
+      setErrorMsg('Enter your email address first so we can send a password reset link.');
       return;
     }
     setLoadingEmail(true);
@@ -191,69 +174,6 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
     }
   }
 
-  async function handleSendOtp(e: React.FormEvent) {
-    e.preventDefault();
-    const formatted = normalizePhoneNumber(phoneInput);
-    if (!/^\+[1-9]\d{6,14}$/.test(formatted)) {
-      setErrorMsg(
-        'Include your country code starting with + (e.g., +14155552671 or +919876543210).'
-      );
-      return;
-    }
-
-    setErrorMsg(null);
-    setInfoMsg(null);
-    setLoadingPhone(true);
-    try {
-      if (recaptchaVerifierRef.current) {
-        recaptchaVerifierRef.current.clear();
-        recaptchaVerifierRef.current = null;
-      }
-      if (!recaptchaContainerRef.current) {
-        throw new Error('Verification widget unavailable.');
-      }
-
-      const verifier = new RecaptchaVerifier(auth, recaptchaContainerRef.current, {
-        size: 'invisible',
-      });
-      recaptchaVerifierRef.current = verifier;
-
-      const result = await signInWithPhoneNumber(auth, formatted, verifier);
-      setConfirmationResult(result);
-    } catch (err) {
-      if (recaptchaVerifierRef.current) {
-        recaptchaVerifierRef.current.clear();
-        recaptchaVerifierRef.current = null;
-      }
-      setErrorMsg(mapAuthError(err));
-    } finally {
-      setLoadingPhone(false);
-    }
-  }
-
-  async function handleVerifyOtp(e: React.FormEvent) {
-    e.preventDefault();
-    if (!confirmationResult) return;
-    const cleanCode = otpCode.trim();
-    if (!/^\d{6}$/.test(cleanCode)) {
-      setErrorMsg('Enter the 6-digit verification code sent to your phone.');
-      return;
-    }
-
-    setErrorMsg(null);
-    setInfoMsg(null);
-    setLoadingPhone(true);
-    try {
-      await confirmationResult.confirm(cleanCode);
-      await onAuthSuccess?.();
-      onClose();
-    } catch (err) {
-      setErrorMsg(mapAuthError(err));
-    } finally {
-      setLoadingPhone(false);
-    }
-  }
-
   return (
     <div
       role="dialog"
@@ -265,10 +185,12 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
         <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-100">
           <div>
             <h2 id="signin-modal-title" className="text-lg font-bold text-[#0B1120]">
-              Sign in to Cadence Study
+              {isSignUp ? 'Create New Account' : 'Sign in to Cadence Study'}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Access your lecture batches, study progress, and session logs.
+              {isSignUp
+                ? 'Register with your email and phone number to enroll in batches.'
+                : 'Sign in through email or Google to access your batches and study logs.'}
             </p>
           </div>
           <button
@@ -294,7 +216,36 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
             </div>
           )}
 
-          {/* Option 1: Google Sign-In */}
+          {/* Mode Switch: Sign In (Email) | Create Account */}
+          <div
+            role="tablist"
+            aria-label="Authentication mode"
+            className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg"
+          >
+            {(
+              [
+                { id: 'signin', label: 'Sign In' },
+                { id: 'signup', label: 'Create Account' },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={authMode === tab.id}
+                onClick={() => switchAuthMode(tab.id)}
+                className={`py-1.5 px-2 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                  authMode === tab.id
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Google Sign-In */}
           <button
             type="button"
             disabled={isBusy}
@@ -324,259 +275,143 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
 
           <div className="relative flex items-center">
             <div className="flex-grow border-t border-slate-200" />
-            <span className="shrink-0 mx-3 text-xs text-slate-400">or</span>
+            <span className="shrink-0 mx-3 text-xs text-slate-400">
+              {isSignUp ? 'or register with email' : 'or sign in with email'}
+            </span>
             <div className="flex-grow border-t border-slate-200" />
           </div>
 
-          {/* Method Switch: Email & Password | Phone Number */}
-          <div
-            role="tablist"
-            aria-label="Sign-in method"
-            className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg"
-          >
-            {(
-              [
-                { id: 'email', label: 'Email' },
-                { id: 'phone', label: 'Phone' },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={methodTab === tab.id}
-                onClick={() => {
-                  setMethodTab(tab.id);
-                  setErrorMsg(null);
-                  setInfoMsg(null);
-                }}
-                className={`py-1.5 px-2 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-                  methodTab === tab.id
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Student Email & Password Form */}
-          {methodTab === 'email' && (
-            <form onSubmit={handleEmailSubmit} className="space-y-3">
-              {isSignUp && (
-                <div>
-                  <label
-                    htmlFor="auth-fullname"
-                    className="block text-xs font-medium text-slate-700 mb-1"
-                  >
-                    Full Name
-                  </label>
-                  <div className="relative">
-                    <UserIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      id="auth-fullname"
-                      type="text"
-                      maxLength={100}
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      placeholder="Your name"
-                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
-                    />
-                  </div>
-                </div>
-              )}
-
+          <form onSubmit={handleEmailSubmit} className="space-y-3">
+            {isSignUp && (
               <div>
                 <label
-                  htmlFor="auth-email"
+                  htmlFor="auth-fullname"
                   className="block text-xs font-medium text-slate-700 mb-1"
                 >
-                  Email Address
+                  Full Name
                 </label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <UserIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
-                    id="auth-email"
-                    type="email"
+                    id="auth-fullname"
+                    type="text"
                     required
-                    autoComplete="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="student@university.edu"
-                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
+                    maxLength={VALIDATION_LIMITS.displayNameMax}
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="Your full name"
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-indigo-600"
                   />
                 </div>
               </div>
+            )}
 
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label
-                    htmlFor="auth-password"
-                    className="block text-xs font-medium text-slate-700"
-                  >
-                    Password
-                  </label>
-                  {!isSignUp && (
-                    <button
-                      type="button"
-                      onClick={() => void handlePasswordReset(email)}
-                      className="text-xs text-blue-600 hover:underline"
-                    >
-                      Forgot password?
-                    </button>
-                  )}
-                </div>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    id="auth-password"
-                    type="password"
-                    required
-                    minLength={6}
-                    autoComplete={isSignUp ? 'new-password' : 'current-password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 6 characters"
-                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isBusy}
-                className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
+            <div>
+              <label
+                htmlFor="auth-email"
+                className="block text-xs font-medium text-slate-700 mb-1"
               >
-                {loadingEmail
-                  ? isSignUp
-                    ? 'Creating account...'
-                    : 'Signing in...'
-                  : isSignUp
-                  ? 'Create Account'
-                  : 'Sign in with Email'}
-              </button>
+                Email Address
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  id="auth-email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="student@university.edu"
+                  className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-indigo-600"
+                />
+              </div>
+            </div>
 
-              <p className="text-center text-xs text-slate-600 pt-1">
-                {isSignUp ? 'Already have an account? ' : 'New student? '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSignUp((v) => !v);
-                    setErrorMsg(null);
-                    setInfoMsg(null);
-                  }}
-                  className="text-blue-600 font-medium hover:underline"
+            {isSignUp && (
+              <div>
+                <label
+                  htmlFor="auth-phone"
+                  className="block text-xs font-medium text-slate-700 mb-1"
                 >
-                  {isSignUp ? 'Sign in instead' : 'Create an account'}
-                </button>
-              </p>
-            </form>
-          )}
+                  Phone Number
+                </label>
+                <div className="relative">
+                  <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    id="auth-phone"
+                    type="tel"
+                    required
+                    autoComplete="tel"
+                    maxLength={VALIDATION_LIMITS.phoneNumberMax}
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="+91 98765 43210"
+                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm font-mono text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-indigo-600"
+                  />
+                </div>
+              </div>
+            )}
 
-          {/* Phone Number SMS OTP Form */}
-          {methodTab === 'phone' && (
-            <>
-              {!confirmationResult ? (
-                <form onSubmit={handleSendOtp} className="space-y-3">
-                  <div>
-                    <label
-                      htmlFor="phone-number-input"
-                      className="block text-xs font-medium text-slate-700 mb-1.5"
-                    >
-                      Phone Number (with country code)
-                    </label>
-                    <div className="relative">
-                      <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        id="phone-number-input"
-                        type="tel"
-                        required
-                        value={phoneInput}
-                        onChange={(e) => setPhoneInput(e.target.value)}
-                        placeholder="+1 415 555 2671"
-                        className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm font-mono text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
-                      />
-                    </div>
-                  </div>
-
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label
+                  htmlFor="auth-password"
+                  className="block text-xs font-medium text-slate-700"
+                >
+                  Password
+                </label>
+                {!isSignUp && (
                   <button
-                    type="submit"
-                    disabled={isBusy}
-                    className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
+                    type="button"
+                    onClick={() => void handlePasswordReset(email)}
+                    className="text-xs text-indigo-600 hover:underline"
                   >
-                    {loadingPhone ? 'Sending Code...' : 'Send Verification Code'}
+                    Forgot password?
                   </button>
-                </form>
-              ) : (
-                <form onSubmit={handleVerifyOtp} className="space-y-3">
-                  <div className="flex items-center justify-between text-xs text-slate-600">
-                    <span className="inline-flex items-center gap-1.5">
-                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                      <span>Code sent to {normalizePhoneNumber(phoneInput)}</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setConfirmationResult(null);
-                        setOtpCode('');
-                        setErrorMsg(null);
-                      }}
-                      className="text-blue-600 hover:underline"
-                    >
-                      Change
-                    </button>
-                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  id="auth-password"
+                  type="password"
+                  required
+                  minLength={6}
+                  autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 6 characters"
+                  className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-indigo-600"
+                />
+              </div>
+            </div>
 
-                  <div>
-                    <label
-                      htmlFor="otp-code-input"
-                      className="block text-xs font-medium text-slate-700 mb-1.5"
-                    >
-                      6-Digit SMS Verification Code
-                    </label>
-                    <input
-                      id="otp-code-input"
-                      type="text"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      maxLength={6}
-                      required
-                      value={otpCode}
-                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="123456"
-                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-base font-mono tracking-widest text-center text-slate-900 focus:outline-2 focus:outline-blue-600"
-                    />
-                  </div>
+            <button
+              type="submit"
+              disabled={isBusy}
+              className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
+            >
+              {loadingEmail
+                ? isSignUp
+                  ? 'Creating account...'
+                  : 'Signing in...'
+                : isSignUp
+                ? 'Create Account'
+                : 'Sign in with Email'}
+            </button>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setConfirmationResult(null);
-                        setOtpCode('');
-                        setErrorMsg(null);
-                      }}
-                      className="inline-flex items-center gap-1 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>Back</span>
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={isBusy}
-                      className="flex-1 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      {loadingPhone ? 'Verifying...' : 'Verify & Sign In'}
-                    </button>
-                  </div>
-                </form>
-              )}
-            </>
-          )}
-
-          {/* Invisible reCAPTCHA anchor */}
-          <div ref={recaptchaContainerRef} />
+            <p className="text-center text-xs text-slate-600 pt-1">
+              {isSignUp ? 'Already have an account? ' : 'New student? '}
+              <button
+                type="button"
+                onClick={() => switchAuthMode(isSignUp ? 'signin' : 'signup')}
+                className="text-indigo-600 font-medium hover:underline"
+              >
+                {isSignUp ? 'Sign in with Email' : 'Create an account'}
+              </button>
+            </p>
+          </form>
         </div>
       </div>
     </div>

@@ -266,7 +266,7 @@ export function SessionLogsView({
             Subject Session Logs & Study Progress
           </h1>
           <p className="text-sm text-slate-600 mb-6">
-            Sign in with Google, email, or your phone number to track batch completion, cumulative hours per subject, and your chronological study logs.
+            Sign in with Google or email to track batch completion, cumulative hours per subject, and your chronological study logs.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <button
