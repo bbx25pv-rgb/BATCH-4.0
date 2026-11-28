@@ -250,6 +250,27 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidBatchProgress(data) {
+      return data.keys().hasAll(['userId', 'batchId', 'completedLectureIds', 'lastLectureId', 'lastLectureTitle', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['userId', 'batchId', 'completedLectureIds', 'lastLectureId', 'lastLectureTitle', 'createdAt', 'updatedAt']) &&
+        isValidId(data.userId) &&
+        isValidId(data.batchId) &&
+        data.completedLectureIds is list &&
+        data.completedLectureIds.size() <= 500 &&
+        (
+          data.completedLectureIds.size() == 0 ||
+          (
+            data.completedLectureIds[0] is string &&
+            data.completedLectureIds[0].size() >= 1 &&
+            data.completedLectureIds[0].size() <= 128
+          )
+        ) &&
+        data.lastLectureId is string && data.lastLectureId.size() <= 128 &&
+        data.lastLectureTitle is string && data.lastLectureTitle.size() <= 140 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
     // Collection: /admins/{userId}
     match /admins/{userId} {
       allow get: if isValidId(userId) && isVerified() && (request.auth.uid == userId || isAdmin());
@@ -508,6 +529,31 @@ service cloud.firestore {
           'updatedAt'
         ]);
       allow delete: if isAdmin() && isValidId(methodId);
+    }
+
+    // Collection: /batchProgress/{progressId}
+    match /batchProgress/{progressId} {
+      allow get: if isValidId(progressId) && isVerified() && (
+        isAdmin() ||
+        (resource == null && progressId.matches('^' + request.auth.uid + '_[a-zA-Z0-9_\\-]+$')) ||
+        (resource != null && existing().userId == request.auth.uid)
+      );
+      allow list: if isVerified() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isVerified() && isValidId(progressId) && isValidBatchProgress(incoming()) &&
+        progressId == request.auth.uid + '_' + incoming().batchId &&
+        incoming().userId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (isAdmin() || hasActivePurchase(incoming().batchId));
+      allow update: if isVerified() && isValidId(progressId) && isValidBatchProgress(incoming()) &&
+        existing().userId == request.auth.uid &&
+        incoming().userId == existing().userId &&
+        incoming().batchId == existing().batchId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (isAdmin() || hasActivePurchase(existing().batchId)) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['completedLectureIds', 'lastLectureId', 'lastLectureTitle', 'updatedAt']);
+      allow delete: if isVerified() && isValidId(progressId) && (existing().userId == request.auth.uid || isAdmin());
     }
   }
 }

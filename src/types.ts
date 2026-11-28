@@ -194,4 +194,15 @@ export interface PaymentMethod {
   updatedAt: Timestamp;
 }
 
+export interface BatchProgress {
+  id: string;
+  userId: string;
+  batchId: string;
+  completedLectureIds: string[];
+  lastLectureId: string;
+  lastLectureTitle: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 export type ActiveTab = 'logs' | 'batches' | 'admin';

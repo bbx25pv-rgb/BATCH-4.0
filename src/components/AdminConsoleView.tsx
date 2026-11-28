@@ -900,7 +900,7 @@ export function AdminConsoleView({
         );
       } else {
         await onAuthRefresh();
-        setFeedback(`Admin password saved for ${activeUser.email}. You can now sign in under Admin Login.`);
+        setFeedback(`Password saved for ${activeUser.email}. You can now sign in with Email & Password using the regular Sign in dialog.`);
       }
     } catch (err) {
       const code = (err as { code?: string })?.code ?? '';
@@ -933,17 +933,17 @@ export function AdminConsoleView({
 
   return (
     <section className="max-w-[1280px] mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div className="bg-[#0B1120] text-white rounded-2xl border border-slate-800 p-6 sm:p-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <div className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 mb-1">
+          <div className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-indigo-300 mb-1.5">
             <ShieldCheck className="w-4 h-4" />
             <span>Administrator Lecture & Batch Control</span>
           </div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white">
             Admin Console
           </h1>
-          <p className="mt-1.5 text-sm text-slate-600 max-w-2xl">
-            Manage academic batches, attach YouTube unlisted lecture video links, and control student batch enrollment access.
+          <p className="mt-1.5 text-sm text-slate-300 max-w-2xl">
+            Manage academic batches, attach YouTube unlisted lecture video links, verify student payment proofs, and control cohort access.
           </p>
         </div>
 
@@ -953,16 +953,16 @@ export function AdminConsoleView({
               type="button"
               disabled={seeding}
               onClick={() => void handleSeedStarterBatches()}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 text-xs font-medium rounded-lg disabled:opacity-50 whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 border border-slate-700 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg disabled:opacity-50 whitespace-nowrap shrink-0"
             >
-              <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
               <span>{seeding ? 'Publishing...' : 'Publish 4 Starter Batches'}</span>
             </button>
           )}
           <button
             type="button"
             onClick={() => setShowBatchForm((v) => !v)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg whitespace-nowrap shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>{showBatchForm ? 'Close Form' : 'Create New Batch'}</span>
@@ -3838,13 +3838,13 @@ export function AdminConsoleView({
           <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
             <div>
               <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
-                <KeyRound className="w-4 h-4 text-blue-600" />
-                <span>Admin Login & Password</span>
+                <KeyRound className="w-4 h-4 text-indigo-600" />
+                <span>Account Password</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
                 {hasPasswordProvider
-                  ? `Password login is active for ${currentUser?.email ?? 'this admin account'}. Update your password below.`
-                  : `Link a password to ${currentUser?.email ?? 'your admin account'} so you can sign in with Email & Password in addition to Google.`}
+                  ? `Password login is active for ${currentUser?.email ?? 'this account'}. Update your password below.`
+                  : `Link a password to ${currentUser?.email ?? 'your account'} so you can sign in with Email & Password in addition to Google.`}
               </p>
             </div>
 

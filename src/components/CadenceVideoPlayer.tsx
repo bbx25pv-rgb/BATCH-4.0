@@ -27,6 +27,7 @@ interface CadenceVideoPlayerProps {
   playTrigger?: number;
   hasNextLecture?: boolean;
   onNextLecture?: () => void;
+  onEnded?: () => void;
   compact?: boolean;
 }
 
@@ -135,6 +136,7 @@ export function CadenceVideoPlayer({
   playTrigger = 0,
   hasNextLecture = false,
   onNextLecture,
+  onEnded,
   compact = false,
 }: CadenceVideoPlayerProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -149,6 +151,8 @@ export function CadenceVideoPlayer({
   const playTriggerRef = useRef(playTrigger);
   const prevVideoIdRef = useRef(videoId);
   const selectedQualityRef = useRef<string>('default');
+  const onEndedRef = useRef(onEnded);
+  onEndedRef.current = onEnded;
 
   const [playerReady, setPlayerReady] = useState(false);
   const [hasStarted, setHasStarted] = useState(autoStartInitial(playTrigger));
@@ -466,6 +470,7 @@ export function CadenceVideoPlayer({
                 setIsBuffering(false);
                 setIsEnded(true);
                 setCurrentTime(dur > 0 ? dur : event.target.getCurrentTime());
+                onEndedRef.current?.();
               }
             },
             onPlaybackRateChange: (event) => {

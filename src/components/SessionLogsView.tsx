@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  ArrowRight,
   BookOpen,
   Check,
   Edit3,
@@ -9,6 +10,9 @@ import {
   X,
 } from 'lucide-react';
 import {
+  Batch,
+  BatchProgress,
+  BatchPurchase,
   Habit,
   SessionMode,
   StudySession,
@@ -33,9 +37,13 @@ interface SessionLogsViewProps {
   userId: string | null;
   onRequireSignIn: () => void;
   onBrowseBatches?: () => void;
+  onOpenBatch?: (batchId: string) => void;
   subjects: Subject[];
   sessions: StudySession[];
   habits: Habit[];
+  batches: Batch[];
+  purchases: BatchPurchase[];
+  batchProgressList: BatchProgress[];
   loadingData: boolean;
 }
 
@@ -43,9 +51,13 @@ export function SessionLogsView({
   userId,
   onRequireSignIn,
   onBrowseBatches,
+  onOpenBatch,
   subjects,
   sessions,
   habits,
+  batches,
+  purchases,
+  batchProgressList,
   loadingData,
 }: SessionLogsViewProps) {
   const [subjectFilter, setSubjectFilter] = useState<string>('all');
@@ -98,6 +110,38 @@ export function SessionLogsView({
       maxStreak,
     };
   }, [sessions, subjects, habits]);
+
+  const enrolledBatchProgressCards = useMemo(() => {
+    if (!userId) return [];
+    const activeBatchIds = new Set(
+      purchases
+        .filter((p) => p.userId === userId && p.status === 'active')
+        .map((p) => p.batchId)
+    );
+    const progressMap = new Map(
+      batchProgressList.map((bp) => [bp.batchId, bp])
+    );
+
+    return batches
+      .filter((b) => activeBatchIds.has(b.id))
+      .map((b) => {
+        const prog = progressMap.get(b.id) ?? null;
+        const total = Math.max(0, b.lectureCount || 0);
+        const completed = prog
+          ? total > 0
+            ? Math.min(total, prog.completedLectureIds.length)
+            : prog.completedLectureIds.length
+          : 0;
+        const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+        return {
+          batch: b,
+          completed,
+          total,
+          pct,
+          lastLectureTitle: prog?.lastLectureTitle ?? '',
+        };
+      });
+  }, [userId, batches, purchases, batchProgressList]);
 
   const weeklyBySubject = useMemo(() => {
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -189,19 +233,19 @@ export function SessionLogsView({
   if (!userId) {
     return (
       <section className="max-w-[1280px] mx-auto px-4 sm:px-6 py-10 sm:py-16">
-        <div className="bg-white border border-slate-200 rounded-xl p-6 sm:p-10 text-center max-w-xl mx-auto">
-          <BookOpen className="w-8 h-8 text-blue-600 mx-auto mb-3" />
-          <h1 className="text-xl font-bold text-slate-900 mb-2">
-            Subject Session Logs & Academic Goals
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-6 sm:p-10 text-center max-w-xl mx-auto shadow-[0_1px_2px_rgba(11,17,32,0.04)]">
+          <BookOpen className="w-8 h-8 text-indigo-600 mx-auto mb-3" />
+          <h1 className="text-xl font-bold text-[#0B1120] mb-2">
+            Subject Session Logs & Study Progress
           </h1>
           <p className="text-sm text-slate-600 mb-6">
-            Sign in with Google or your phone number to track cumulative hours per subject, review your chronological study logs, and monitor weekly target attainment.
+            Sign in with Google, email, or your phone number to track batch completion, cumulative hours per subject, and your chronological study logs.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <button
               type="button"
               onClick={onRequireSignIn}
-              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap shrink-0"
+              className="px-5 py-2.5 bg-[#0B1120] hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-colors whitespace-nowrap shrink-0"
             >
               Sign in
             </button>
@@ -209,7 +253,7 @@ export function SessionLogsView({
               <button
                 type="button"
                 onClick={onBrowseBatches}
-                className="px-5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 text-sm font-medium rounded-lg transition-colors whitespace-nowrap shrink-0"
+                className="px-5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 text-sm font-semibold rounded-xl transition-colors whitespace-nowrap shrink-0"
               >
                 Browse Lecture Batches
               </button>
@@ -222,13 +266,16 @@ export function SessionLogsView({
 
   return (
     <section className="max-w-[1280px] mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div className="bg-[#0B1120] text-white rounded-2xl border border-slate-800 p-6 sm:p-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">
-            Subject Session Logs
+          <p className="text-xs font-semibold uppercase tracking-wider text-indigo-300">
+            Cadence Study · Analytics & Logs
+          </p>
+          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white mt-1.5">
+            Study Progress & Session Logs
           </h1>
-          <p className="mt-1.5 text-sm text-slate-600">
-            Track cumulative effort across subjects and review every completed Pomodoro, lecture, and offline study session.
+          <p className="mt-1.5 text-sm text-slate-300">
+            Track enrolled batch completion alongside subject targets and completed study blocks.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -238,7 +285,7 @@ export function SessionLogsView({
               setShowAddSubject((v) => !v);
               setShowLogSession(false);
             }}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 border border-slate-700 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Subject</span>
@@ -251,7 +298,7 @@ export function SessionLogsView({
               setShowLogSession((v) => !v);
               setShowAddSubject(false);
             }}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Log Study Session</span>
@@ -261,37 +308,113 @@ export function SessionLogsView({
 
       {/* 4-column KPI Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-[0_1px_2px_rgba(11,17,32,0.04)]">
           <p className="text-xs font-medium text-slate-500">Total Logged Study</p>
-          <p className="mt-2 text-2xl font-bold font-mono tabular-nums text-slate-900">
+          <p className="mt-2 text-2xl font-bold font-mono tabular-nums text-[#0B1120]">
             {formatMinutesAsHours(stats.totalMinutes)}
           </p>
           <p className="mt-1 text-xs text-slate-500">All recorded sessions</p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-[0_1px_2px_rgba(11,17,32,0.04)]">
           <p className="text-xs font-medium text-slate-500">Completed Sessions</p>
-          <p className="mt-2 text-2xl font-bold font-mono tabular-nums text-slate-900">
+          <p className="mt-2 text-2xl font-bold font-mono tabular-nums text-[#0B1120]">
             {stats.sessionCount}
           </p>
           <p className="mt-1 text-xs text-slate-500">Pomodoro, lecture & manual</p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-[0_1px_2px_rgba(11,17,32,0.04)]">
           <p className="text-xs font-medium text-slate-500">Weekly Goal Attainment</p>
-          <p className="mt-2 text-2xl font-bold font-mono tabular-nums text-slate-900">
+          <p className="mt-2 text-2xl font-bold font-mono tabular-nums text-[#0B1120]">
             {stats.weeklyPct}%
           </p>
           <p className="mt-1 text-xs text-slate-500 tabular-nums">
             {formatMinutesAsHours(stats.weeklyMinutes)} logged past 7 days
           </p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-[0_1px_2px_rgba(11,17,32,0.04)]">
           <p className="text-xs font-medium text-slate-500">Top Habit Streak</p>
-          <p className="mt-2 text-2xl font-bold font-mono tabular-nums text-slate-900">
+          <p className="mt-2 text-2xl font-bold font-mono tabular-nums text-[#0B1120]">
             {stats.maxStreak} days
           </p>
           <p className="mt-1 text-xs text-slate-500">As of {today}</p>
         </div>
       </div>
+
+      {/* Batch Study Progress Summary */}
+      {enrolledBatchProgressCards.length > 0 && (
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-[0_1px_2px_rgba(11,17,32,0.04)]">
+          <div className="flex items-center justify-between mb-5 gap-3">
+            <div>
+              <h2 className="text-base font-bold text-[#0B1120]">
+                Batch Study Progress
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Lecture completion across your enrolled cohorts
+              </p>
+            </div>
+            {onBrowseBatches && (
+              <button
+                type="button"
+                onClick={onBrowseBatches}
+                className="text-xs font-semibold text-indigo-700 hover:text-indigo-800 whitespace-nowrap"
+              >
+                View All Batches
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {enrolledBatchProgressCards.map(({ batch, completed, total, pct, lastLectureTitle }) => (
+              <div
+                key={batch.id}
+                className="pt-4 border-t border-slate-100 flex flex-col justify-between gap-3"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs text-slate-500 truncate">
+                        {batch.subjectTag} · {batch.instructor}
+                      </p>
+                      <h3 className="text-sm font-bold text-[#0B1120] mt-0.5 line-clamp-1">
+                        {batch.title}
+                      </h3>
+                    </div>
+                    <span className="text-xs font-mono tabular-nums font-bold text-[#0B1120] shrink-0">
+                      {pct}%
+                    </span>
+                  </div>
+
+                  <div className="mt-3 h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-[width] duration-300 ${
+                        pct === 100 ? 'bg-emerald-600' : 'bg-indigo-600'
+                      }`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="font-mono tabular-nums text-slate-500 truncate">
+                    {completed} / {total} lectures
+                    {lastLectureTitle ? ` · ${lastLectureTitle}` : ''}
+                  </span>
+                  {onOpenBatch && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenBatch(batch.id)}
+                      className="inline-flex items-center gap-1 font-semibold text-indigo-700 hover:text-indigo-900 shrink-0"
+                    >
+                      <span>Open</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {formError && (
         <div className="px-4 py-3 bg-rose-50 border border-rose-200 rounded-lg text-sm text-rose-800">
@@ -468,9 +591,9 @@ export function SessionLogsView({
       )}
 
       {/* Subject Weekly Targets Grid */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6">
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-[0_1px_2px_rgba(11,17,32,0.04)]">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-base font-semibold text-slate-900">
+          <h2 className="text-base font-bold text-[#0B1120]">
             Academic Subject Progress
           </h2>
           <span className="text-xs text-slate-500">
@@ -554,7 +677,7 @@ export function SessionLogsView({
       </div>
 
       {/* Chronological Subject Session Log Ledger */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div className="bg-white border border-slate-200/90 rounded-2xl overflow-hidden shadow-[0_1px_2px_rgba(11,17,32,0.04)]">
         <div className="p-4 sm:p-5 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
           <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2.5 sm:gap-3">
             <div className="relative flex-1 sm:flex-initial min-w-0">

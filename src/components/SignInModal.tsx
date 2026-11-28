@@ -12,7 +12,6 @@ import {
 } from 'firebase/auth';
 import {
   ArrowLeft,
-  KeyRound,
   Lock,
   Mail,
   Phone,
@@ -21,7 +20,6 @@ import {
   X,
 } from 'lucide-react';
 import { auth, googleProvider } from '@/src/lib/firebase';
-import { ADMIN_BOOTSTRAP_EMAIL } from '@/src/types';
 
 interface SignInModalProps {
   isOpen: boolean;
@@ -29,7 +27,7 @@ interface SignInModalProps {
   onAuthSuccess?: () => void | Promise<void>;
 }
 
-type AuthMethodTab = 'email' | 'phone' | 'admin';
+type AuthMethodTab = 'email' | 'phone';
 
 function normalizePhoneNumber(raw: string): string {
   return raw.replace(/[\s()-]/g, '');
@@ -45,9 +43,9 @@ function mapAuthError(err: unknown): string {
     case 'auth/invalid-credential':
     case 'auth/wrong-password':
     case 'auth/user-not-found':
-      return 'Incorrect email or password. If you previously signed in with Google, click "Send Password Setup Link" or sign in with Google and set a password in Admin Console.';
+      return 'Incorrect email or password. If you normally sign in with Google, click "Continue with Google" or use "Forgot password?" to set a password.';
     case 'auth/email-already-in-use':
-      return 'An account with this email already exists. Use "Sign in as Admin" or click "Send Password Setup Link" to set or reset your password.';
+      return 'An account with this email already exists. Sign in above or click "Forgot password?" to set or reset your password.';
     case 'auth/weak-password':
       return 'Password must be at least 6 characters long.';
     case 'auth/invalid-phone-number':
@@ -72,18 +70,12 @@ function mapAuthError(err: unknown): string {
 export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps) {
   const [methodTab, setMethodTab] = useState<AuthMethodTab>('email');
 
-  // Student Email/password state
+  // Student / User Email & password state
   const [isSignUp, setIsSignUp] = useState(false);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loadingEmail, setLoadingEmail] = useState(false);
-
-  // Admin login/setup state
-  const [adminEmail, setAdminEmail] = useState(ADMIN_BOOTSTRAP_EMAIL);
-  const [adminPassword, setAdminPassword] = useState('');
-  const [adminCreateMode, setAdminCreateMode] = useState(false);
-  const [loadingAdmin, setLoadingAdmin] = useState(false);
 
   // Phone auth state
   const [phoneInput, setPhoneInput] = useState('');
@@ -109,7 +101,6 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
       setConfirmationResult(null);
       setOtpCode('');
       setPassword('');
-      setAdminPassword('');
       setErrorMsg(null);
       setInfoMsg(null);
     }
@@ -126,7 +117,7 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
 
   if (!isOpen) return null;
 
-  const isBusy = loadingGoogle || loadingEmail || loadingPhone || loadingAdmin;
+  const isBusy = loadingGoogle || loadingEmail || loadingPhone;
 
   async function handleGoogleSignIn() {
     setErrorMsg(null);
@@ -179,42 +170,6 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
     }
   }
 
-  async function handleAdminSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setErrorMsg(null);
-    setInfoMsg(null);
-    const cleanEmail = adminEmail.trim();
-    if (!cleanEmail || adminPassword.length < 6) {
-      setErrorMsg('Enter the admin email and a password of at least 6 characters.');
-      return;
-    }
-
-    setLoadingAdmin(true);
-    try {
-      if (adminCreateMode) {
-        const cred = await createUserWithEmailAndPassword(
-          auth,
-          cleanEmail,
-          adminPassword
-        );
-        await updateProfile(cred.user, { displayName: 'Administrator' });
-        await sendEmailVerification(cred.user);
-        await onAuthSuccess?.();
-        onClose();
-      } else {
-        const cred = await signInWithEmailAndPassword(auth, cleanEmail, adminPassword);
-        await cred.user.reload();
-        await cred.user.getIdToken(true);
-        await onAuthSuccess?.();
-        onClose();
-      }
-    } catch (err) {
-      setErrorMsg(mapAuthError(err));
-    } finally {
-      setLoadingAdmin(false);
-    }
-  }
-
   async function handlePasswordReset(targetEmail: string) {
     setErrorMsg(null);
     setInfoMsg(null);
@@ -227,7 +182,7 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
     try {
       await sendPasswordResetEmail(auth, cleanEmail);
       setInfoMsg(
-        `If an Email & Password account exists for ${cleanEmail}, Firebase sent a reset link (check Spam/Promotions). If you normally use Google Sign-In or haven't created a password yet, sign in with Google and set your password in Admin Console, or use Create Account / Create Admin Password.`
+        `If an Email & Password account exists for ${cleanEmail}, Firebase sent a reset link (check Spam/Promotions). If you normally sign in with Google, click "Continue with Google" instead.`
       );
     } catch (err) {
       setErrorMsg(mapAuthError(err));
@@ -304,16 +259,16 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
       role="dialog"
       aria-modal="true"
       aria-labelledby="signin-modal-title"
-      className="fixed inset-0 z-50 bg-slate-950/40 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-[#0B1120]/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
     >
-      <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full max-h-[92dvh] overflow-y-auto my-auto p-5 sm:p-6">
+      <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full max-h-[92dvh] overflow-y-auto my-auto p-5 sm:p-6 shadow-xl">
         <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-100">
           <div>
-            <h2 id="signin-modal-title" className="text-lg font-bold text-slate-900">
+            <h2 id="signin-modal-title" className="text-lg font-bold text-[#0B1120]">
               Sign in to Cadence Study
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Access your subject session logs, lecture batches, or admin console.
+              Access your lecture batches, study progress, and session logs.
             </p>
           </div>
           <button
@@ -373,17 +328,16 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
             <div className="flex-grow border-t border-slate-200" />
           </div>
 
-          {/* Method Switch: Email & Password | Phone Number | Admin */}
+          {/* Method Switch: Email & Password | Phone Number */}
           <div
             role="tablist"
             aria-label="Sign-in method"
-            className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-lg"
+            className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg"
           >
             {(
               [
                 { id: 'email', label: 'Email' },
                 { id: 'phone', label: 'Phone' },
-                { id: 'admin', label: 'Admin Login' },
               ] as const
             ).map((tab) => (
               <button
@@ -492,7 +446,7 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
               <button
                 type="submit"
                 disabled={isBusy}
-                className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
               >
                 {loadingEmail
                   ? isSignUp
@@ -549,7 +503,7 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
                   <button
                     type="submit"
                     disabled={isBusy}
-                    className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                    className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
                   >
                     {loadingPhone ? 'Sending Code...' : 'Send Verification Code'}
                   </button>
@@ -619,104 +573,6 @@ export function SignInModal({ isOpen, onClose, onAuthSuccess }: SignInModalProps
                 </form>
               )}
             </>
-          )}
-
-          {/* Dedicated Admin Login & Password Setup Tab */}
-          {methodTab === 'admin' && (
-            <form onSubmit={handleAdminSubmit} className="space-y-3">
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 flex items-start gap-2">
-                <KeyRound className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-                <span>
-                  {adminCreateMode
-                    ? 'Create an Email & Password credential for your authorized admin email, or sign in with Google and link a password inside the Admin Console.'
-                    : 'Sign in with your verified administrator email and password to manage batches and unlisted YouTube lectures.'}
-                </span>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="admin-email"
-                  className="block text-xs font-medium text-slate-700 mb-1"
-                >
-                  Admin Email
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    id="admin-email"
-                    type="email"
-                    required
-                    autoComplete="email"
-                    value={adminEmail}
-                    onChange={(e) => setAdminEmail(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm font-mono text-slate-900 focus:outline-2 focus:outline-blue-600"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label
-                    htmlFor="admin-password"
-                    className="block text-xs font-medium text-slate-700"
-                  >
-                    {adminCreateMode ? 'Choose Admin Password' : 'Admin Password'}
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => void handlePasswordReset(adminEmail)}
-                    className="text-xs text-blue-600 hover:underline"
-                  >
-                    Send Password Setup Link
-                  </button>
-                </div>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    id="admin-password"
-                    type="password"
-                    required
-                    minLength={6}
-                    autoComplete={adminCreateMode ? 'new-password' : 'current-password'}
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                    placeholder="At least 6 characters"
-                    className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-2 focus:outline-blue-600"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isBusy}
-                className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
-              >
-                {loadingAdmin
-                  ? adminCreateMode
-                    ? 'Creating Admin Login...'
-                    : 'Signing in...'
-                  : adminCreateMode
-                  ? 'Create Admin Login & Password'
-                  : 'Sign in as Admin'}
-              </button>
-
-              <p className="text-center text-xs text-slate-600 pt-1">
-                {adminCreateMode
-                  ? 'Already set an admin password? '
-                  : 'First time using email/password for admin? '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAdminCreateMode((v) => !v);
-                    setErrorMsg(null);
-                    setInfoMsg(null);
-                  }}
-                  className="text-blue-600 font-medium hover:underline"
-                >
-                  {adminCreateMode ? 'Sign in as Admin' : 'Create Admin Password'}
-                </button>
-              </p>
-            </form>
           )}
 
           {/* Invisible reCAPTCHA anchor */}

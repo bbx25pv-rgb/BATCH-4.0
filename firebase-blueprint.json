@@ -539,6 +539,51 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "BatchProgress": {
+      "title": "BatchProgress",
+      "description": "Tracks an enrolled student's lecture completion progress and last watched lecture inside a batch.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "batchId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "completedLectureIds": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "lastLectureId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "lastLectureTitle": {
+          "type": "string",
+          "maxLength": 140
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "batchId", "completedLectureIds", "lastLectureId", "lastLectureTitle", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -581,6 +626,10 @@
     "/paymentMethods/{methodId}": {
       "schema": { "$ref": "#/entities/PaymentMethod" },
       "description": "Admin-managed payment methods available to verified students during batch enrollment."
+    },
+    "/batchProgress/{progressId}": {
+      "schema": { "$ref": "#/entities/BatchProgress" },
+      "description": "Deterministic {userId}_{batchId} lecture completion tracking for enrolled students."
     }
   }
 }

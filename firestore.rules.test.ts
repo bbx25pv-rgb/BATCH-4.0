@@ -21,6 +21,7 @@ const requiredCollections = [
   '/batches/{batchId}/syllabus/{lectureId}',
   '/purchases/{purchaseId}',
   '/paymentMethods/{methodId}',
+  '/batchProgress/{progressId}',
 ];
 
 for (const path of requiredCollections) {
@@ -52,6 +53,12 @@ assert.ok(
   rules.includes('isValidPaymentMethod(incoming())') &&
     rules.includes('match /paymentMethods/{methodId}'),
   'Payment methods must require admin writes and verified active reads'
+);
+assert.ok(
+  rules.includes('isValidBatchProgress(incoming())') &&
+    rules.includes('match /batchProgress/{progressId}') &&
+    rules.includes('hasActivePurchase(incoming().batchId)'),
+  'Batch study progress must validate schema and require an active batch purchase or admin access'
 );
 
 console.log('All security rule structural invariants passed.');

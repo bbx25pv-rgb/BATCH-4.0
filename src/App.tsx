@@ -30,6 +30,7 @@ import {
   ActiveTab,
   ADMIN_BOOTSTRAP_EMAIL,
   Batch,
+  BatchProgress,
   BatchPurchase,
   Habit,
   PaymentMethod,
@@ -52,6 +53,7 @@ function CadenceApp() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [showSignInModal, setShowSignInModal] = useState(false);
   const [pendingEnrollBatchId, setPendingEnrollBatchId] = useState<string | null>(null);
+  const [requestedOpenBatchId, setRequestedOpenBatchId] = useState<string | null>(null);
   const [verificationNotice, setVerificationNotice] = useState<string | null>(null);
   const [verifyingAction, setVerifyingAction] = useState(false);
 
@@ -61,6 +63,7 @@ function CadenceApp() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [purchases, setPurchases] = useState<BatchPurchase[]>([]);
+  const [batchProgressList, setBatchProgressList] = useState<BatchProgress[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [students, setStudents] = useState<UserProfile[]>([]);
   const [copiedFooterUid, setCopiedFooterUid] = useState(false);
@@ -78,6 +81,7 @@ function CadenceApp() {
       setSessions([]);
       setHabits([]);
       setPurchases([]);
+      setBatchProgressList([]);
       setPaymentMethods([]);
       setStudents([]);
       setAuthReady(true);
@@ -266,6 +270,20 @@ function CadenceApp() {
       }
     );
 
+    const unsubBatchProgress = onSnapshot(
+      query(collection(db, 'batchProgress'), where('userId', '==', user.uid)),
+      (snap) => {
+        const items: BatchProgress[] = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<BatchProgress, 'id'>),
+        }));
+        setBatchProgressList(items);
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'batchProgress');
+      }
+    );
+
     let unsubStudents: (() => void) | null = null;
     if (isAdmin) {
       unsubStudents = onSnapshot(
@@ -292,6 +310,7 @@ function CadenceApp() {
       unsubHabits();
       unsubPurchases();
       unsubPaymentMethods();
+      unsubBatchProgress();
       if (unsubStudents) unsubStudents();
     };
   }, [authReady, user, isVerifiedUser, isAdmin]);
@@ -356,7 +375,7 @@ function CadenceApp() {
   );
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-[#0F172A] overflow-x-clip">
+    <div className="min-h-screen flex flex-col bg-[#F3F5F9] text-[#0B1120] overflow-x-clip">
       <Navbar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
@@ -394,7 +413,7 @@ function CadenceApp() {
                   type="button"
                   disabled={verifyingAction}
                   onClick={() => void handleVerifyWithGoogle()}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium whitespace-nowrap disabled:opacity-50"
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md font-medium whitespace-nowrap disabled:opacity-50"
                 >
                   Verify with Google
                 </button>
@@ -411,7 +430,7 @@ function CadenceApp() {
                 type="button"
                 disabled={verifyingAction}
                 onClick={() => void handleRefreshVerification()}
-                className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-md font-medium whitespace-nowrap disabled:opacity-50"
+                className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#0B1120] hover:bg-slate-800 text-white rounded-md font-medium whitespace-nowrap disabled:opacity-50"
               >
                 <RefreshCw className="w-3 h-3" />
                 <span>Refresh Status</span>
@@ -427,9 +446,16 @@ function CadenceApp() {
             userId={user && isVerifiedUser ? user.uid : null}
             onRequireSignIn={() => setShowSignInModal(true)}
             onBrowseBatches={() => setActiveTab('batches')}
+            onOpenBatch={(batchId) => {
+              setRequestedOpenBatchId(batchId);
+              setActiveTab('batches');
+            }}
             subjects={subjects}
             sessions={sessions}
             habits={habits}
+            batches={batches}
+            purchases={purchases}
+            batchProgressList={batchProgressList}
             loadingData={loadingUserData}
           />
         )}
@@ -446,8 +472,11 @@ function CadenceApp() {
             }}
             pendingEnrollBatchId={pendingEnrollBatchId}
             onClearPendingEnroll={() => setPendingEnrollBatchId(null)}
+            requestedOpenBatchId={requestedOpenBatchId}
+            onClearRequestedOpenBatch={() => setRequestedOpenBatchId(null)}
             batches={batches}
             purchases={purchases}
+            batchProgressList={batchProgressList}
             paymentMethods={paymentMethods}
             loadingBatches={loadingBatches}
           />
@@ -488,9 +517,9 @@ function CadenceApp() {
                   <button
                     type="button"
                     onClick={() => setShowSignInModal(true)}
-                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg"
+                    className="px-4 py-2 bg-[#0B1120] hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg"
                   >
-                    Sign in as Admin
+                    Sign in
                   </button>
                 ) : !isVerifiedUser ? (
                   <>
@@ -544,9 +573,9 @@ function CadenceApp() {
         }}
       />
 
-      <footer className="border-t border-slate-200 bg-white mt-12">
+      <footer className="border-t border-slate-200/80 bg-white mt-14">
         <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-500">
-          <span>Cadence Study · Academic Focus & Cohort Lectures</span>
+          <span className="font-medium text-slate-600">Cadence Study · Academic Focus & Cohort Lectures</span>
           {user && (
             <div className="flex flex-wrap items-center gap-2 max-w-full">
               <span className="font-mono truncate max-w-full sm:max-w-md">
@@ -563,7 +592,7 @@ function CadenceApp() {
                     // Clipboard unavailable
                   }
                 }}
-                className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-medium transition-colors shrink-0"
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md font-medium transition-colors shrink-0"
               >
                 {copiedFooterUid ? (
                   <>

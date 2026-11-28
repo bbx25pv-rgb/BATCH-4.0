@@ -16,6 +16,7 @@ import { auth, db, handleFirestoreError, OperationType } from '@/src/lib/firebas
 import {
   BATCH_COVER_IMAGES,
   Batch,
+  BatchProgress,
   Habit,
   HabitCategory,
   HabitUnit,
@@ -1125,6 +1126,101 @@ export async function deletePaymentMethod(methodId: string): Promise<void> {
     await deleteDoc(doc(db, 'paymentMethods', methodId));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function recordLectureOpened(
+  userId: string,
+  batchId: string,
+  lectureId: string,
+  lectureTitle: string,
+  currentProgress?: BatchProgress | null
+): Promise<void> {
+  const progressId = `${userId}_${batchId}`;
+  const path = `batchProgress/${progressId}`;
+  const ref = doc(db, 'batchProgress', progressId);
+  const cleanLecId = sanitizeString(lectureId, 128);
+  const cleanLecTitle = sanitizeString(lectureTitle, 140);
+
+  try {
+    const existingIds = currentProgress
+      ? currentProgress.completedLectureIds
+      : (await getDoc(ref)).data()?.completedLectureIds;
+
+    if (Array.isArray(existingIds) || currentProgress) {
+      await updateDoc(ref, {
+        completedLectureIds: Array.isArray(existingIds) ? existingIds.slice(0, 500) : [],
+        lastLectureId: cleanLecId,
+        lastLectureTitle: cleanLecTitle,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await setDoc(ref, {
+        userId,
+        batchId,
+        completedLectureIds: [],
+        lastLectureId: cleanLecId,
+        lastLectureTitle: cleanLecTitle,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function toggleLectureCompleted(
+  userId: string,
+  batchId: string,
+  lectureId: string,
+  lectureTitle: string,
+  completed: boolean,
+  currentProgress?: BatchProgress | null
+): Promise<void> {
+  const progressId = `${userId}_${batchId}`;
+  const path = `batchProgress/${progressId}`;
+  const ref = doc(db, 'batchProgress', progressId);
+  const cleanLecId = sanitizeString(lectureId, 128);
+  const cleanLecTitle = sanitizeString(lectureTitle, 140);
+
+  try {
+    const snap = currentProgress ? null : await getDoc(ref);
+    const hasExisting = Boolean(currentProgress || snap?.exists());
+    const existingIds: string[] = currentProgress
+      ? currentProgress.completedLectureIds
+      : Array.isArray(snap?.data()?.completedLectureIds)
+      ? (snap?.data()?.completedLectureIds as string[])
+      : [];
+
+    const nextSet = new Set(existingIds.filter((id) => typeof id === 'string' && id.length > 0));
+    if (completed) {
+      nextSet.add(cleanLecId);
+    } else {
+      nextSet.delete(cleanLecId);
+    }
+    const nextIds = Array.from(nextSet).slice(0, 500);
+
+    if (hasExisting) {
+      await updateDoc(ref, {
+        completedLectureIds: nextIds,
+        lastLectureId: cleanLecId,
+        lastLectureTitle: cleanLecTitle,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await setDoc(ref, {
+        userId,
+        batchId,
+        completedLectureIds: nextIds,
+        lastLectureId: cleanLecId,
+        lastLectureTitle: cleanLecTitle,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
   }
 }
 

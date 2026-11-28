@@ -14,8 +14,8 @@
 
   body {
     font-family: var(--font-sans);
-    background-color: #F8FAFC;
-    color: #0F172A;
+    background-color: #F3F5F9;
+    color: #0B1120;
     padding-bottom: env(safe-area-inset-bottom);
   }
 
