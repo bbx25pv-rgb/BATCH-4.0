@@ -54,6 +54,7 @@ function CadenceApp() {
   const [showSignInModal, setShowSignInModal] = useState(false);
   const [pendingEnrollBatchId, setPendingEnrollBatchId] = useState<string | null>(null);
   const [requestedOpenBatchId, setRequestedOpenBatchId] = useState<string | null>(null);
+  const [requestedPurchaseBatchId, setRequestedPurchaseBatchId] = useState<string | null>(null);
   const [verificationNotice, setVerificationNotice] = useState<string | null>(null);
   const [verifyingAction, setVerifyingAction] = useState(false);
 
@@ -318,6 +319,8 @@ function CadenceApp() {
   async function handleSignOut() {
     await signOut(auth);
     setPendingEnrollBatchId(null);
+    setRequestedOpenBatchId(null);
+    setRequestedPurchaseBatchId(null);
     if (activeTab === 'admin') setActiveTab('batches');
   }
 
@@ -450,6 +453,10 @@ function CadenceApp() {
               setRequestedOpenBatchId(batchId);
               setActiveTab('batches');
             }}
+            onPurchaseBatch={(batchId) => {
+              setRequestedPurchaseBatchId(batchId);
+              setActiveTab('batches');
+            }}
             subjects={subjects}
             sessions={sessions}
             habits={habits}
@@ -474,6 +481,8 @@ function CadenceApp() {
             onClearPendingEnroll={() => setPendingEnrollBatchId(null)}
             requestedOpenBatchId={requestedOpenBatchId}
             onClearRequestedOpenBatch={() => setRequestedOpenBatchId(null)}
+            requestedPurchaseBatchId={requestedPurchaseBatchId}
+            onClearRequestedPurchaseBatch={() => setRequestedPurchaseBatchId(null)}
             batches={batches}
             purchases={purchases}
             batchProgressList={batchProgressList}

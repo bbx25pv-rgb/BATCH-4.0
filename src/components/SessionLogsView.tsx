@@ -3,7 +3,9 @@ import {
   ArrowRight,
   BookOpen,
   Check,
+  Clock,
   Edit3,
+  Lock,
   Plus,
   Search,
   Trash2,
@@ -28,6 +30,7 @@ import {
   updateSessionNotes,
 } from '@/src/lib/studyService';
 import {
+  formatInr,
   formatMinutesAsHours,
   getSubjectBarClass,
   getTodayDateString,
@@ -38,6 +41,7 @@ interface SessionLogsViewProps {
   onRequireSignIn: () => void;
   onBrowseBatches?: () => void;
   onOpenBatch?: (batchId: string) => void;
+  onPurchaseBatch?: (batchId: string) => void;
   subjects: Subject[];
   sessions: StudySession[];
   habits: Habit[];
@@ -52,6 +56,7 @@ export function SessionLogsView({
   onRequireSignIn,
   onBrowseBatches,
   onOpenBatch,
+  onPurchaseBatch,
   subjects,
   sessions,
   habits,
@@ -143,6 +148,28 @@ export function SessionLogsView({
       });
   }, [userId, batches, purchases, batchProgressList]);
 
+  const availableLockedBatches = useMemo(() => {
+    const purchaseMap = new Map<string, BatchPurchase>();
+    if (userId) {
+      purchases.forEach((p) => {
+        if (p.userId === userId) {
+          purchaseMap.set(p.batchId, p);
+        }
+      });
+    }
+    return batches
+      .filter((b) => {
+        if (!b.isPublished) return false;
+        const purchase = purchaseMap.get(b.id);
+        if (purchase?.status === 'active' || purchase?.status === 'revoked') return false;
+        return true;
+      })
+      .map((batch) => ({
+        batch,
+        isPending: purchaseMap.get(batch.id)?.status === 'pending',
+      }));
+  }, [userId, batches, purchases]);
+
   const weeklyBySubject = useMemo(() => {
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     const map = new Map<string, number>();
@@ -232,7 +259,7 @@ export function SessionLogsView({
 
   if (!userId) {
     return (
-      <section className="max-w-[1280px] mx-auto px-4 sm:px-6 py-10 sm:py-16">
+      <section className="max-w-[1280px] mx-auto px-4 sm:px-6 py-10 sm:py-16 space-y-8">
         <div className="bg-white border border-slate-200/90 rounded-2xl p-6 sm:p-10 text-center max-w-xl mx-auto shadow-[0_1px_2px_rgba(11,17,32,0.04)]">
           <BookOpen className="w-8 h-8 text-indigo-600 mx-auto mb-3" />
           <h1 className="text-xl font-bold text-[#0B1120] mb-2">
@@ -260,6 +287,75 @@ export function SessionLogsView({
             )}
           </div>
         </div>
+
+        {availableLockedBatches.length > 0 && onPurchaseBatch && (
+          <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-[0_1px_2px_rgba(11,17,32,0.04)]">
+            <div className="flex items-center justify-between mb-5 gap-3">
+              <div>
+                <h2 className="text-base font-bold text-[#0B1120]">
+                  Available Lecture Batches
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Click any locked batch to go straight to its payment page
+                </p>
+              </div>
+              {onBrowseBatches && (
+                <button
+                  type="button"
+                  onClick={onBrowseBatches}
+                  className="text-xs font-semibold text-indigo-700 hover:text-indigo-800 whitespace-nowrap"
+                >
+                  View Catalog
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {availableLockedBatches.map(({ batch }) => (
+                <div
+                  key={batch.id}
+                  className="pt-4 border-t border-slate-100 flex flex-col justify-between gap-3"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onPurchaseBatch(batch.id)}
+                    className="text-left group focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 rounded-lg"
+                  >
+                    <p className="text-xs text-slate-500 truncate">
+                      {batch.subjectTag} · {batch.instructor}
+                    </p>
+                    <h3 className="text-sm font-bold text-[#0B1120] group-hover:text-indigo-700 mt-0.5 line-clamp-1 transition-colors">
+                      {batch.title}
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-1 line-clamp-1">
+                      {batch.lectureCount} {batch.lectureCount === 1 ? 'lecture' : 'lectures'} · Private syllabus
+                    </p>
+                  </button>
+
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => onPurchaseBatch(batch.id)}
+                      className="inline-flex items-center gap-1.5 text-slate-600 hover:text-indigo-700 font-medium transition-colors"
+                    >
+                      <Lock className="w-3.5 h-3.5 text-slate-400" />
+                      <span className="font-mono tabular-nums font-bold text-[#0B1120]">
+                        {formatInr(batch.priceUsd)}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onPurchaseBatch(batch.id)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <span>Purchase Batch</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
     );
   }
@@ -409,6 +505,90 @@ export function SessionLogsView({
                       <ArrowRight className="w-3 h-3" />
                     </button>
                   )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Locked / Available Batches ready to purchase */}
+      {availableLockedBatches.length > 0 && onPurchaseBatch && (
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-6 shadow-[0_1px_2px_rgba(11,17,32,0.04)]">
+          <div className="flex items-center justify-between mb-5 gap-3">
+            <div>
+              <h2 className="text-base font-bold text-[#0B1120]">
+                Available Lecture Batches
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Click any locked batch to go directly to its payment page
+              </p>
+            </div>
+            {onBrowseBatches && (
+              <button
+                type="button"
+                onClick={onBrowseBatches}
+                className="text-xs font-semibold text-indigo-700 hover:text-indigo-800 whitespace-nowrap"
+              >
+                View Catalog
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {availableLockedBatches.map(({ batch, isPending }) => (
+              <div
+                key={batch.id}
+                className="pt-4 border-t border-slate-100 flex flex-col justify-between gap-3"
+              >
+                <button
+                  type="button"
+                  onClick={() => onPurchaseBatch(batch.id)}
+                  className="text-left group focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 rounded-lg"
+                >
+                  <p className="text-xs text-slate-500 truncate">
+                    {batch.subjectTag} · {batch.instructor}
+                  </p>
+                  <h3 className="text-sm font-bold text-[#0B1120] group-hover:text-indigo-700 mt-0.5 line-clamp-1 transition-colors">
+                    {batch.title}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1 line-clamp-1">
+                    {batch.lectureCount} {batch.lectureCount === 1 ? 'lecture' : 'lectures'} ·{' '}
+                    {isPending ? 'Payment submitted · Pending approval' : 'Locked cohort'}
+                  </p>
+                </button>
+
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => onPurchaseBatch(batch.id)}
+                    className="inline-flex items-center gap-1.5 text-slate-600 hover:text-indigo-700 font-medium transition-colors"
+                  >
+                    {isPending ? (
+                      <>
+                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                        <span className="font-semibold text-amber-700">Pending Approval</span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-3.5 h-3.5 text-slate-400" />
+                        <span className="font-mono tabular-nums font-bold text-[#0B1120]">
+                          {formatInr(batch.priceUsd)}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onPurchaseBatch(batch.id)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 ${
+                      isPending
+                        ? 'bg-amber-50 border border-amber-300 hover:bg-amber-100 text-amber-900'
+                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                    }`}
+                  >
+                    <span>{isPending ? 'Awaiting Approval' : 'Purchase Batch'}</span>
+                  </button>
                 </div>
               </div>
             ))}
